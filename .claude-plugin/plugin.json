@@ -1,0 +1,10 @@
+{
+  "name": "loreground",
+  "description": "Стандарт памяти агента со слоем доверия к фактам: провенанс, вычисляемый консенсус по независимым корням, защита от выдуманных источников, temporal-знания. Плюс валидатор базы и навык разбора сессий.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Vasiliy"
+  },
+  "license": "MIT",
+  "keywords": ["memory", "knowledge-base", "provenance", "markdown", "obsidian"]
+}

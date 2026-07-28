@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Точка входа валидатора в PATH, пока плагин включён.
+# Сам валидатор лежит в standard/ — рядом со стандартом, как сказано в core.md § 10.
+set -euo pipefail
+SRC="${BASH_SOURCE[0]}"
+# Разворачиваем цепочку симлинков: скрипт может быть слинкован в чужой bin/.
+while [ -L "$SRC" ]; do
+  TGT="$(readlink "$SRC")"
+  case "$TGT" in /*) SRC="$TGT" ;; *) SRC="$(cd "$(dirname "$SRC")" && pwd)/$TGT" ;; esac
+done
+DIR="$(cd "$(dirname "$SRC")/.." && pwd)"
+exec python3 "$DIR/standard/validate.py" "$@"
