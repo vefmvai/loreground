@@ -638,16 +638,75 @@ if [ "$(id -u)" -eq 0 ]; then ok "4е пропущен: запуск от root";
 fi
 rm -rf "$TMP"
 
-echo "── Исполнитель паспорта стартовой загрузки (SessionStart-хук) ──"
-# Паспорт § 6.3 до этого хука был декларацией. Проверяется ровно граница исполнения:
-# by: hook грузится, by: rules и by: env — нет, и молчание отличимо от «нечего грузить».
-KIT="$(cd ../.. && pwd)"
-TSL="$(mktemp -d)"
-sl() { (cd "$TSL" && CLAUDE_PROJECT_DIR="$TSL" python3 "$KIT/hooks/startup-load.py"); }
+echo "── Автопрогон валидатора после записи (PostToolUse-хук) ──"
+# § 11 п. 12 требует прогон после каждого ввода знания — требование к модели, то есть
+# «если не отвлеклась». Проверяется, что код делает это за неё и что зелёный молчит.
+KIT="$(cd ../.. && pwd)"     # дом обоих помощников — здесь: ниже они используются всеми хуками
 ctx() { python3 -c "
 import sys, json
 raw = sys.stdin.read().strip()
 sys.stdout.write(json.loads(raw)['hookSpecificOutput']['additionalContext'] if raw else '')"; }
+TVW="$(mktemp -d)"
+mkdir -p "$TVW/knowledge"
+cp fixtures/clean/knowledge/*.md "$TVW/knowledge/" 2>/dev/null
+printf 'validate:\n  command: python3 %s/standard/validate.py knowledge\n' "$KIT" > "$TVW/config.yaml"
+# Заметка без frontmatter: база заведомо красная, значит молчание может быть только
+# от ворот, а не от «нечего сказать». Первая редакция теста ворот у соседнего хука была
+# ложно-зелёной именно из-за отсутствия этой предпосылки.
+printf 'черновик\n' > "$TVW/knowledge/Битая.md"
+vw() { printf '{"tool_name":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "${1}" "$TVW" "${2}" \
+       | (cd "$TVW" && CLAUDE_PROJECT_DIR="$TVW" python3 "$KIT/hooks/validate-on-write.py"); }
+
+OUT=$(vw Write "$TVW/knowledge/Битая.md"); RC=$?
+if [ -z "$OUT" ]; then ok "валидатор-хук: без метки молчит, хотя база красная"; else bad "валидатор-хук: сработал в проекте без метки"; fi
+if [ "$RC" -eq 0 ]; then ok "валидатор-хук: код выхода 0 без метки"; else bad "валидатор-хук: код выхода $RC помешает работе"; fi
+
+printf 'имя: тест\n' > "$TVW/.loreground"
+OUT=$(vw Write "$TVW/knowledge/Битая.md" | ctx)
+has "валидатор-хук: красная база доложена" "найдены проблемы"
+has "валидатор-хук: отчёт валидатора приехал целиком" "FRONTMATTER"
+
+OUT=$(vw Read "$TVW/knowledge/Битая.md")
+if [ -z "$OUT" ]; then ok "валидатор-хук: на чтение не реагирует"; else bad "валидатор-хук: сработал на Read"; fi
+
+OUT=$(vw Write "$TVW/knowledge/Битая.txt")
+if [ -z "$OUT" ]; then ok "валидатор-хук: не-md не проверяется"; else bad "валидатор-хук: сработал на не-md"; fi
+
+OUT=$(vw Write "$TVW/просто-файл.md")
+if [ -z "$OUT" ]; then ok "валидатор-хук: файл вне базы не запускает прогон"; else bad "валидатор-хук: прогнал базу из-за файла вне неё"; fi
+
+rm -f "$TVW/knowledge/Битая.md"
+OUT=$(vw Write "$TVW/knowledge/00-index.md")
+if [ -z "$OUT" ]; then ok "валидатор-хук: зелёный прогон молчит"; else bad "валидатор-хук: шумит на чистой базе"; fi
+printf 'черновик\n' > "$TVW/knowledge/Битая.md"
+
+# Код 2 обязан звучать иначе, чем «чисто»: это главный класс ошибок проекта.
+printf 'validate:\n  command: python3 %s/standard/validate.py нет-такой-папки\n' "$KIT" > "$TVW/config.yaml"
+OUT=$(vw Write "$TVW/knowledge/Битая.md" | ctx); has "валидатор-хук: код 2 назван «не состоялся»" "НЕ СОСТОЯЛСЯ"
+
+printf 'validate:\n  command: заведомо-нет-такой-команды knowledge\n' > "$TVW/config.yaml"
+OUT=$(vw Write "$TVW/knowledge/Битая.md" | ctx); has "валидатор-хук: отсутствие команды названо" "не найдена"
+
+printf "validate:\n  command: 'lore-validate \"knowledge'\n" > "$TVW/config.yaml"
+OUT=$(vw Write "$TVW/knowledge/Битая.md" | ctx); has "валидатор-хук: неразбираемая команда названа" "не разбирается"
+
+# Два РАЗНЫХ пути к молчанию, и оба надо пройти: без файла конфига выход происходит
+# раньше, чем проверка пустой команды, — мутация «придумать команду самому» на первом
+# случае не краснела, потому что до этой ветки исполнение не доходило.
+printf 'validate:\n  trust_layer: true\n' > "$TVW/config.yaml"
+OUT=$(vw Write "$TVW/knowledge/Битая.md")
+if [ -z "$OUT" ]; then ok "валидатор-хук: конфиг без command — команды не придумывает"; else bad "валидатор-хук: придумал команду сам"; fi
+
+rm -f "$TVW/config.yaml"
+OUT=$(vw Write "$TVW/knowledge/Битая.md")
+if [ -z "$OUT" ]; then ok "валидатор-хук: без config.yaml молчит"; else bad "валидатор-хук: заговорил без конфига"; fi
+rm -rf "$TVW"
+
+echo "── Исполнитель паспорта стартовой загрузки (SessionStart-хук) ──"
+# Паспорт § 6.3 до этого хука был декларацией. Проверяется ровно граница исполнения:
+# by: hook грузится, by: rules и by: env — нет, и молчание отличимо от «нечего грузить».
+TSL="$(mktemp -d)"          # KIT и ctx определены выше, в блоке автопрогона валидатора
+sl() { (cd "$TSL" && CLAUDE_PROJECT_DIR="$TSL" python3 "$KIT/hooks/startup-load.py"); }
 
 # Ворота проверяются на проекте, которому ЕСТЬ что грузить: иначе молчание объясняется
 # отсутствием конфига, и снятие ворот проходит незамеченным. Мутация «снять ворота»

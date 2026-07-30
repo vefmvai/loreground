@@ -1,5 +1,5 @@
 {
-  "description": "Хуки старта сессии: исполнитель паспорта стартовой загрузки и сторож свежести кодекса. Оба молчат, если в проекте нет метки сборки .loreground",
+  "description": "Хуки комплекта. Старт сессии: исполнитель паспорта стартовой загрузки и сторож свежести кодекса. После записи: автопрогон валидатора базы. Все молчат, если в проекте нет метки сборки .loreground",
   "hooks": {
     "SessionStart": [
       {
@@ -11,6 +11,17 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/codex-freshness.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/validate-on-write.py\""
           }
         ]
       }
