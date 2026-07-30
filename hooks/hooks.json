@@ -1,0 +1,15 @@
+{
+  "description": "Сторож свежести кодекса: сверяет копию в правилах агента с источником. Молчит, если совпало или если в проекте нет метки сборки .loreground",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/codex-freshness.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
