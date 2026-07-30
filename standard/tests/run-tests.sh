@@ -818,6 +818,20 @@ rm -rf "$TIN/knowledge"; mkdir -p "$TIN/knowledge"
 ( cd "$TIN" && CLAUDE_PLUGIN_ROOT="$KIT" bash step5.sh ) >/dev/null 2>&1
 if [ -f "$TIN/knowledge/00-index.md" ]; then ok "сборка: на пустой базе индекс создаётся"; else
   bad "сборка: на пустой базе индекс не создан"; fi
+
+# Метка — тот же класс: файл слоя пользователя под записью. В ней дата сборки, и
+# повторный запуск на живом агенте сдвинул бы её на сегодня, соврав о том, когда
+# агента собрали. Защита индекса без защиты метки закрыла бы адрес, а не класс.
+python3 - "$KIT/skills/init/SKILL.md" "$TIN/step8.sh" <<'PY'
+import re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+b = next(x for x in re.findall(r"```bash\n(.*?)```", t, re.S) if ".loreground" in x)
+open(sys.argv[2], "w", encoding="utf-8").write(b)
+PY
+printf 'собран_на_версии: 0.1.0\nсобран: 2020-01-01\nимя: старый\n' > "$TIN/.loreground"
+( cd "$TIN" && CLAUDE_PLUGIN_ROOT="$KIT" NAME=x bash step8.sh ) >/dev/null 2>&1
+if grep -q '2020-01-01' "$TIN/.loreground"; then ok "сборка: дата в существующей метке не сдвинута"; else
+  bad "сборка: метка перезаписана — дата сборки агента подменена сегодняшней"; fi
 rm -rf "$TIN"
 
 echo "── Чужая машина: отсутствие python3 ──"
