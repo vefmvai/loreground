@@ -638,6 +638,71 @@ if [ "$(id -u)" -eq 0 ]; then ok "4е пропущен: запуск от root";
 fi
 rm -rf "$TMP"
 
+echo "── Исполнитель паспорта стартовой загрузки (SessionStart-хук) ──"
+# Паспорт § 6.3 до этого хука был декларацией. Проверяется ровно граница исполнения:
+# by: hook грузится, by: rules и by: env — нет, и молчание отличимо от «нечего грузить».
+KIT="$(cd ../.. && pwd)"
+TSL="$(mktemp -d)"
+sl() { (cd "$TSL" && CLAUDE_PROJECT_DIR="$TSL" python3 "$KIT/hooks/startup-load.py"); }
+ctx() { python3 -c "
+import sys, json
+raw = sys.stdin.read().strip()
+sys.stdout.write(json.loads(raw)['hookSpecificOutput']['additionalContext'] if raw else '')"; }
+
+# Ворота проверяются на проекте, которому ЕСТЬ что грузить: иначе молчание объясняется
+# отсутствием конфига, и снятие ворот проходит незамеченным. Мутация «снять ворота»
+# первую редакцию этого случая не роняла — тест был ложно-зелёным.
+mkdir -p "$TSL/my"
+printf 'СЛОВО-ЧАСОВОЙ\n' > "$TSL/my/mem.md"
+MSZ=$(wc -c < "$TSL/my/mem.md" | tr -d ' ')
+printf 'startup:\n  loads:\n    - what: память\n      by: hook\n      path: my/mem.md\n' > "$TSL/config.yaml"
+
+OUT=$(sl); RC=$?
+if [ -z "$OUT" ]; then ok "паспорт: без метки молчит, хотя грузить есть что"; else bad "паспорт: залез в проект без метки"; fi
+if [ "$RC" -eq 0 ]; then ok "паспорт: код выхода 0 без метки"; else bad "паспорт: код выхода $RC сорвёт старт"; fi
+
+printf 'имя: тест\n' > "$TSL/.loreground"
+OUT=$(sl | ctx)
+has "паспорт: с меткой тот же конфиг исполняется" "СЛОВО-ЧАСОВОЙ"
+
+rm -f "$TSL/config.yaml"
+OUT=$(sl)
+if [ -z "$OUT" ]; then ok "паспорт: без config.yaml молчит (ничего не объявлено)"; else bad "паспорт: шумит без конфига"; fi
+
+# Граница: чужие способы загрузки исполнитель не трогает.
+printf 'startup:\n  loads:\n    - what: правила\n      by: rules\n      path: my/mem.md\n' > "$TSL/config.yaml"
+OUT=$(sl)
+if [ -z "$OUT" ]; then ok "паспорт: by: rules не исполняется хуком"; else bad "паспорт: хук залез в чужую строку by: rules"; fi
+
+printf 'startup:\n  loads:\n    - what: без адреса\n      by: hook\n' > "$TSL/config.yaml"
+OUT=$(sl | ctx); has "паспорт: by: hook без path назван" "без path"
+
+printf 'startup:\n  loads:\n    - what: наружу\n      by: hook\n      path: ../../../etc/hosts\n' > "$TSL/config.yaml"
+OUT=$(sl | ctx); has "паспорт: путь наружу проекта отвергнут" "наружу проекта"
+
+printf 'startup:\n  loads:\n    - what: пропавший\n      by: hook\n      path: my/нет.md\n' > "$TSL/config.yaml"
+OUT=$(sl | ctx); has "паспорт: объявленный, но отсутствующий файл назван" "объявлен обязательным, а его нет"
+
+printf 'startup:\n  budget: 9000\n  loads:\n    - what: память\n      by: hook\n      path: my/mem.md\n      size: %s\n' "$MSZ" > "$TSL/config.yaml"
+OUT=$(sl | ctx)
+has "паспорт: содержимое файла доехало" "СЛОВО-ЧАСОВОЙ"
+has "паспорт: фактический вес назван" "$MSZ Б"
+case "$OUT" in *"Расхождения паспорта"*) bad "паспорт: ложное расхождение при верном size" ;;
+               *) ok "паспорт: верный size расхождением не считается" ;; esac
+
+printf 'startup:\n  budget: 9000\n  loads:\n    - what: память\n      by: hook\n      path: my/mem.md\n      size: 99999\n' > "$TSL/config.yaml"
+OUT=$(sl | ctx); has "паспорт: враньё в size поймано" "на диске $MSZ Б"
+
+printf 'startup:\n  budget: 3\n  loads:\n    - what: память\n      by: hook\n      path: my/mem.md\n' > "$TSL/config.yaml"
+OUT=$(sl | ctx)
+has "паспорт: пробитый потолок назван" "ПОТОЛОК ПРОБИТ"
+# § 6.3 п. 4: пробой — работа человека, а не повод оставить агента без памяти.
+has "паспорт: при пробое груз всё равно доехал" "СЛОВО-ЧАСОВОЙ"
+
+printf 'startup:\n  loads:\n   - what: кривой\n  by: [\n' > "$TSL/config.yaml"
+OUT=$(sl | ctx); has "паспорт: битый YAML назван, а не проглочен" "не разбирается"
+rm -rf "$TSL"
+
 echo "── Сторож свежести кодекса (SessionStart-хук) ──"
 # Три исхода обязаны быть различимы: молчание, расхождение и «проверить не удалось».
 # Слить второе с третьим — тот же класс, что exit 0 при невыполненных проверках.

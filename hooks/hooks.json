@@ -1,9 +1,13 @@
 {
-  "description": "Сторож свежести кодекса: сверяет копию в правилах агента с источником. Молчит, если совпало или если в проекте нет метки сборки .loreground",
+  "description": "Хуки старта сессии: исполнитель паспорта стартовой загрузки и сторож свежести кодекса. Оба молчат, если в проекте нет метки сборки .loreground",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/startup-load.py\""
+          },
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/codex-freshness.py\""
