@@ -96,7 +96,15 @@ cp -R "$CLAUDE_PLUGIN_ROOT"/standard/templates standard/_templates   # см. п�
 ```bash
 BASE=knowledge   # или существующее имя, найденное шагом 1
 mkdir -p "$BASE"
-cp "$CLAUDE_PLUGIN_ROOT"/standard/templates/00-index.md "$BASE"/00-index.md
+# Индекс существующей базы НЕ перезаписывается. Это точка входа во всё остальное
+# (§ 7.2): затерев её, агент осиротит базу целиком, а шаблон выглядит как рабочий файл,
+# и пропажу заметят не сразу. Навык обещает не трогать существующие заметки — обещание
+# держится проверкой, а не аккуратностью того, кто его зовёт.
+if [ -e "$BASE/00-index.md" ]; then
+  echo "$BASE/00-index.md уже есть — оставляю как есть: это точка входа существующей базы."
+else
+  cp "$CLAUDE_PLUGIN_ROOT"/standard/templates/00-index.md "$BASE"/00-index.md
+fi
 ```
 
 **Больше ничего не создавать.** Остальные модули памяти — состояние, журнал, сырьё —
@@ -186,7 +194,13 @@ mkdir -p my
 
 NAME="<короткое имя агента, спросить или взять имя папки>"
 VER=$(python3 -c "import json,os;print(json.load(open(os.environ['CLAUDE_PLUGIN_ROOT']+'/.claude-plugin/plugin.json'))['version'])" 2>/dev/null || echo "неизвестна")
-printf 'собран_на_версии: %s\nсобран: %s\nимя: %s\n' "$VER" "$(date +%F)" "$NAME" > .loreground
+# Метка тоже не затирается вслепую: в ней дата сборки, а повторный запуск навыка на
+# живом агенте сдвинул бы её на сегодня — то есть соврал бы о том, когда агента собрали.
+if [ -e .loreground ]; then
+  echo "метка .loreground уже есть — не трогаю; текущее содержимое:"; cat .loreground
+else
+  printf 'собран_на_версии: %s\nсобран: %s\nимя: %s\n' "$VER" "$(date +%F)" "$NAME" > .loreground
+fi
 ```
 
 **Почему «собран на версии», а не «версия».** Это факт из прошлого, и он верен всегда.

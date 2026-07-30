@@ -794,6 +794,32 @@ printf 'startup:\n  loads:\n   - what: кривой\n  by: [\n' > "$TSL/config.y
 OUT=$(sl | ctx); has "паспорт: битый YAML назван, а не проглочен" "не разбирается"
 rm -rf "$TSL"
 
+echo "── Сборка на живом агенте: чужое не затирается ──"
+# Навык обещает «существующие заметки не переписывает». Обещание проверяется прогоном
+# его же команды по живой базе: Home-индекс — точка входа во всё остальное (§ 7.2),
+# и подмена его шаблоном осиротит базу целиком, причём тихо — шаблон выглядит рабочим.
+TIN="$(mktemp -d)"
+python3 - "$KIT/skills/init/SKILL.md" "$TIN/step5.sh" <<'PY'
+import re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+b = next(x for x in re.findall(r"```bash\n(.*?)```", t, re.S) if "00-index.md" in x and "BASE" in x)
+open(sys.argv[2], "w", encoding="utf-8").write(b)
+PY
+mkdir -p "$TIN/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\n---\n- [[Кофеин]] — год работы\n- [[Сон]] — 40 заметок\n' > "$TIN/knowledge/00-index.md"
+( cd "$TIN" && CLAUDE_PLUGIN_ROOT="$KIT" bash step5.sh ) >/dev/null 2>&1
+if grep -q 'Кофеин' "$TIN/knowledge/00-index.md"; then
+  ok "сборка: существующий Home-индекс не затёрт"
+else bad "сборка: живой Home-индекс заменён шаблоном — база осиротела"; fi
+
+# И обратная сторона: на пустой папке индекс обязан появиться, иначе защита превратится
+# в «навык ничего не делает».
+rm -rf "$TIN/knowledge"; mkdir -p "$TIN/knowledge"
+( cd "$TIN" && CLAUDE_PLUGIN_ROOT="$KIT" bash step5.sh ) >/dev/null 2>&1
+if [ -f "$TIN/knowledge/00-index.md" ]; then ok "сборка: на пустой базе индекс создаётся"; else
+  bad "сборка: на пустой базе индекс не создан"; fi
+rm -rf "$TIN"
+
 echo "── Чужая машина: отсутствие python3 ──"
 # «Нечем проверить» обязано звучать одинаково, чем бы ни было нечем. Про PyYAML
 # валидатор говорит человеческим текстом с командой установки; про сам python3
