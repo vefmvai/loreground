@@ -23,6 +23,11 @@ import sys
 MARK_OPEN = "<!-- КОПИРОВАТЬ ОТСЮДА -->"
 MARK_CLOSE = "<!-- КОПИРОВАТЬ ДО СЮДА -->"
 VERSION_RE = re.compile(r"версия кодекса\s+(\d+)")
+# Копию опознаёт строка, которая называет И источник, И версию, — это первая строка
+# копируемого блока. Голое «версия кодекса N» копией не считается: та же фраза попадается
+# в обычной прозе файла правил, и по ней сторож молчал бы там, где копии нет вовсе.
+# Молчание — самый дорогой из трёх исходов: его читают как «всё в порядке».
+COPY_RE = re.compile(r"^.*codex\.md.*версия кодекса\s+(\d+).*$", re.M)
 RULES_FILES = ("CLAUDE.md", "AGENTS.md", ".cursorrules")
 MARKER = ".loreground"
 
@@ -102,28 +107,36 @@ def main():
             "Сравнивать не с чем — проверка не состоялась."
         )
 
-    rules_path = None
-    rules_text = None
+    # Берётся первый файл правил, где копия ЕСТЬ, а не первый существующий: рядом с
+    # CLAUDE.md часто лежит AGENTS.md, и копия бывает в нём. Судить по первому попавшемуся
+    # значило обвинять в пропаже того, что лежит в соседнем файле, — и подталкивать
+    # человека завести кодексу второй дом, вопреки центральному правилу стандарта.
+    rules_path = rules_text = copy_version = None
+    seen = []
     for name in RULES_FILES:
         path = os.path.join(project, name)
         text = read(path)
-        if text is not None:
-            rules_path, rules_text = path, text
+        if text is None:
+            continue
+        seen.append(path)
+        found = COPY_RE.search(text)
+        if found is not None:
+            rules_path, rules_text, copy_version = path, text, found
             break
 
-    if rules_text is None:
+    if not seen:
         say(
             "файл правил агента не найден (искал "
             + ", ".join(RULES_FILES)
             + "). Куда положена копия кодекса — неизвестно, проверка не состоялась."
         )
 
-    copy_version = VERSION_RE.search(rules_text)
     if copy_version is None:
         say(
-            "в файле правил " + rules_path + " кодекса нет: строки «версия кодекса N» "
-            "в нём не найдено. Кодекс обязан лежать копией в начале правил "
-            "(core.md § 9.3 п. 5). Скажи об этом человеку."
+            "кодекса нет ни в одном файле правил (просмотрены: " + ", ".join(seen)
+            + "): строки, которая называет codex.md и «версия кодекса N», в них не найдено. "
+            "Кодекс обязан лежать копией в начале правил (core.md § 9.3 п. 5). "
+            "Скажи об этом человеку."
         )
 
     if copy_version.group(1) == source_version.group(1):

@@ -67,6 +67,13 @@ def main():
 
     try:
         import yaml
+    except ImportError:
+        # Отдельно от разбора: без PyYAML прогон не состоится НИКОГДА, а стартовый хук
+        # говорит про паспорт и о мёртвой проверке записи не сообщает.
+        emit(HEAD + ": PyYAML не установлен — комплектацию прогона прочитать нечем. "
+             "Проверка после записи НЕ выполнена, и это не «чисто». Установить: pip install pyyaml")
+
+    try:
         with open(config_path, encoding="utf-8") as handle:
             config = yaml.safe_load(handle) or {}
     except Exception:
@@ -99,6 +106,12 @@ def main():
         emit(HEAD + ": команда «" + argv[0] + "» не найдена. Прогон не состоялся — это не «чисто».")
     except subprocess.TimeoutExpired:
         emit(HEAD + ": прогон не уложился в 120 с и снят. Это не «чисто».")
+    except OSError as err:
+        # Всё остальное, чем ОС отвечает на «запусти»: нет бита +x (PermissionError),
+        # битый интерпретатор в шебанге, слишком длинный аргумент. Раньше это уходило
+        # в общий перехват внизу файла и означало молчание, неотличимое от зелёного.
+        emit(HEAD + ": команда «" + argv[0] + "» не запустилась — " + type(err).__name__
+             + ": " + str(err)[:120] + ". Прогон не состоялся, это не «чисто».")
     spent = time.time() - started
 
     if run.returncode == 0:

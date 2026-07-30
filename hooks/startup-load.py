@@ -34,11 +34,19 @@ def emit(message):
 
 
 def inside(project, rel):
-    """Адрес обязан оставаться внутри проекта: конфиг читает код, а не человек глазами."""
+    """Адрес обязан оставаться внутри проекта: конфиг читает код, а не человек глазами.
+
+    Разрешается путь ЦЕЛИКОМ, а не только его папка. Папка внутри проекта ничего не
+    говорит о файле: `my/mem.md` бывает символьной ссылкой наружу, и тогда «папка внутри»
+    пропускала бы чужой файл в контекст. Несуществующий путь realpath возвращает как есть —
+    такая строка проходит сюда и обрывается ниже на чтении, где о ней и сказано.
+    """
     if os.path.isabs(rel):
         return None
     full = os.path.normpath(os.path.join(project, rel))
-    if os.path.commonpath([os.path.realpath(project), os.path.realpath(os.path.dirname(full) or project)]) != os.path.realpath(project):
+    root = os.path.realpath(project)
+    real = os.path.realpath(full)
+    if real != root and not real.startswith(root + os.sep):
         return None
     if not full.startswith(os.path.normpath(project) + os.sep):
         return None
