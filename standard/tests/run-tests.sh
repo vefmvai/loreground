@@ -794,6 +794,37 @@ printf 'startup:\n  loads:\n   - what: кривой\n  by: [\n' > "$TSL/config.y
 OUT=$(sl | ctx); has "паспорт: битый YAML назван, а не проглочен" "не разбирается"
 rm -rf "$TSL"
 
+echo "── Разбор сессии: шаг 1 навыка retro ──"
+# Команда берётся ИЗ САМОГО НАВЫКА, а не переписывается сюда: копия разошлась бы с
+# оригиналом при первой же правке, и тест проверял бы вчерашний конвейер.
+TRT="$(mktemp -d)"
+python3 - "$KIT/skills/retro/SKILL.md" "$TRT/step1.sh" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+block = next(b for b in re.findall(r"```bash\n(.*?)```", text, re.S) if "_digest.md" in b)
+open(sys.argv[2], "w", encoding="utf-8").write(block)
+PY
+if grep -q 'jq код' "$TRT/step1.sh"; then ok "retro: шаг 1 проверяет код выхода jq отдельно"; else
+  bad "retro: код выхода jq не проверяется — битая стенограмма даст «разбирать нечего»"; fi
+
+# Битая стенограмма обязана валить шаг, а не выдавать короткую выжимку с кодом 0:
+# «нечего разбирать» и «разбор не состоялся» — разные ответы (кодекс: пустой вывод
+# не доказательство).
+( cd "$TRT" && printf '{"type":"user","message":{"content":"раз"}}\nне json\n{"обрыв\n' > t.jsonl
+  F="$TRT/t.jsonl" bash -c 'F="$F"; source step1.sh' >/dev/null 2>&1 )
+RC=$?
+if [ "$RC" -ne 0 ]; then ok "retro: битая стенограмма роняет шаг 1 (код $RC)"; else
+  bad "retro: битая стенограмма прошла с кодом 0 — молчаливое «разбирать нечего»"; fi
+
+# Правило игнора обязано встать ДО первой записи: между ними не должно быть шагов.
+( cd "$TRT" && rm -rf g && mkdir g && cd g && printf 'node_modules/\n' > .gitignore
+  cp "$TRT/step1.sh" . && printf '{"type":"user","message":{"content":"раз"}}\n' > t.jsonl
+  F="$TRT/g/t.jsonl" bash -c 'F="$F"; source step1.sh' >/dev/null 2>&1
+  grep -qx '_retro/' .gitignore ) \
+  && ok "retro: _retro/ попал в .gitignore тем же шагом" \
+  || bad "retro: выжимка записана, а _retro/ в .gitignore не попал"
+rm -rf "$TRT"
+
 echo "── Сторож свежести кодекса (SessionStart-хук) ──"
 # Три исхода обязаны быть различимы: молчание, расхождение и «проверить не удалось».
 # Слить второе с третьим — тот же класс, что exit 0 при невыполненных проверках.
