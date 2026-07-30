@@ -145,7 +145,16 @@ NAME=$( [ -f .loreground ] && grep -m1 '^имя:' .loreground | sed 's/^имя: 
 [ -n "$NAME" ] || NAME=$(basename "$PWD")
 mkdir -p my/retro
 # → my/retro/2026-07-29-sysadmin-retro-a1b2c3d4.md
-echo "my/retro/$(date +%F)-$NAME-retro-$SID.md"
+REPORT="my/retro/$(date +%F)-$NAME-retro-$SID.md"
+# Тот же разбор дважды за день даёт то же имя. Прошлый отчёт — не черновик: в нём
+# принятые человеком решения, и следующий разбор читает архив, чтобы увидеть, что беда
+# всплывает не впервые. Затерев его, разбор уничтожает ровно то, ради чего архив заведён.
+if [ -e "$REPORT" ]; then
+  n=2; while [ -e "${REPORT%.md}-$n.md" ]; do n=$((n+1)); done
+  echo "отчёт за сегодня по этой сессии уже есть — прошлый не трогаю, пишу рядом:"
+  REPORT="${REPORT%.md}-$n.md"
+fi
+echo "$REPORT"
 ```
 
 В отчёт: вердикт, находки, принятое по каждой решение, что применено. **Обезличенно —

@@ -834,6 +834,27 @@ if grep -q '2020-01-01' "$TIN/.loreground"; then ok "сборка: дата в �
   bad "сборка: метка перезаписана — дата сборки агента подменена сегодняшней"; fi
 rm -rf "$TIN"
 
+echo "── Разбор сессии: прошлый отчёт не затирается ──"
+# Тот же класс, что затирание Home-индекса при сборке: файл слоя пользователя под
+# безусловной записью. Архив разборов — не черновик: следующий разбор читает его,
+# чтобы увидеть повтор беды, и затирание уничтожает смысл самого архива.
+TRP="$(mktemp -d)"
+python3 - "$KIT/skills/retro/SKILL.md" "$TRP/step5.sh" <<'PY'
+import re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+b = next(x for x in re.findall(r"```bash\n(.*?)```", t, re.S) if "my/retro" in x)
+open(sys.argv[2], "w", encoding="utf-8").write(b)
+PY
+( cd "$TRP" && printf 'имя: агент\n' > .loreground && mkdir -p my/retro
+  SID=abc12345 bash -c 'SID="$SID"; source step5.sh' > first.txt 2>/dev/null
+  P=$(tail -1 first.txt); printf 'ПЕРВЫЙ ОТЧЁТ\n' > "$P"
+  SID=abc12345 bash -c 'SID="$SID"; source step5.sh' > second.txt 2>/dev/null
+  Q=$(tail -1 second.txt)
+  [ "$P" != "$Q" ] && grep -q 'ПЕРВЫЙ ОТЧЁТ' "$P" ) \
+  && ok "разбор: повторный отчёт не затирает прошлый" \
+  || bad "разбор: второй отчёт за день затёр первый"
+rm -rf "$TRP"
+
 echo "── Чужая машина: отсутствие python3 ──"
 # «Нечем проверить» обязано звучать одинаково, чем бы ни было нечем. Про PyYAML
 # валидатор говорит человеческим текстом с командой установки; про сам python3
