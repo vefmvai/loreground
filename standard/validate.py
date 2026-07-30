@@ -954,11 +954,21 @@ def main():
 
     # ── 8. чистота ядра (маркеры кухни в --core) ─────────────────────────────
     if core_files and args.kitchen_marker:
+        # Маркер и строка приводятся к одному виду до сравнения: регистр, «ё»/«е» и
+        # набор пробелов различием не считаются. Иначе маркер «черновик отдела» не
+        # находил «Черновик отдела» и «черновик  отдела», то есть проверка молчала
+        # ровно там, где кухня и просачивается — при пересказе своими словами.
+        # ГРАНИЦА: сравнение идёт ВНУТРИ строки, чтобы в отчёте был её номер.
+        # Маркер, разорванный переносом строки, эта проверка не увидит.
+        def _one_form(s):
+            return re.sub(r"\s+", " ", s.replace("ё", "е")).strip().lower()
+        markers = [(m, _one_form(m)) for m in args.kitchen_marker]
         kitchen_problems = []
         for f in core_files:
             for i, line in enumerate(texts[f].splitlines(), 1):
-                for marker in args.kitchen_marker:
-                    if marker in line:
+                one = _one_form(line)
+                for marker, m_one in markers:
+                    if m_one and m_one in one:
                         kitchen_problems.append(f"{f}:{i}: маркер кухни «{marker}»")
         if kitchen_problems:
             ok = False
