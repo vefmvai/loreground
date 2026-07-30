@@ -599,6 +599,10 @@ def main():
                          "документа, а не с базой заметок")
     ap.add_argument("--kitchen-marker", action="append", default=[],
                     help="маркер рабочей кухни проекта для проверки 8, напр. 'internal/' (повторяемо)")
+    ap.add_argument("--check-anon", action="append", default=[],
+                    help="папка/файл, который обязан быть обезличен: проверка 22 ищет в нём "
+                         "адреса, ключи, почту, домашние пути (повторяемо). Типичный адрес — "
+                         "архив разборов сессии")
     ap.add_argument("--stale-months", type=int, default=12,
                     help="порог протухания temporal-знаний в месяцах (по умолчанию 12)")
     ap.add_argument("--knowledge-type", action="append", default=[],
@@ -644,8 +648,9 @@ def main():
     base_files = []
     if os.path.isdir(args.base_dir):
         base_files = [f for f in walk_md(args.base_dir) if not is_excluded(f)]
-    elif not core_files:
-        print(f"ОШИБКА: папка {args.base_dir}/ не найдена и --core не задан. Нечего проверять.")
+    elif not core_files and not args.check_anon:
+        print(f"ОШИБКА: папка {args.base_dir}/ не найдена, --core и --check-anon не заданы. "
+              f"Нечего проверять.")
         return 2
 
     scan_files = base_files + [f for f in core_files if f not in base_files]
@@ -1258,6 +1263,71 @@ def main():
         for p in incomplete:
             print(f"    • {p}")
         print()
+
+    # ── 22. обезличенность объявленных файлов (ошибка, § 9.4 п. 2) ───────────
+    # Зачем машина там, где была просьба: обезличенность отчёта разбора держалась
+    # на одной строке инструкции суб-агенту. Просьба ошибается МОЛЧА, и поймать
+    # это было нечем. Проверка не заменяет обезличенность — она ловит то, что
+    # оступившийся агент вписывает чаще всего.
+    #
+    # ГРАНИЦА, которую надо знать: это распознавание образцов, а не понимание.
+    # Пересказанный секрет («наш прод в третьем датацентре у Иванова») пройдёт.
+    # Зелёный прогон означает «известных форм нет», а не «утечки нет».
+    if args.check_anon:
+        anon_files = []
+        for a in args.check_anon:
+            if os.path.isdir(a):
+                anon_files += [f for f in walk_md(a)]
+            elif os.path.isfile(a):
+                anon_files.append(a)
+        # Твёрдые признаки: в обезличенном тексте им места нет ни при каком смысле.
+        HARD = [
+            (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),          "IP-адрес"),
+            (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY"),          "приватный ключ"),
+            (re.compile(r"\bssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/]{20,}"), "публичный ключ SSH"),
+            (re.compile(r"/(?:home|Users)/[A-Za-z0-9._-]+"),         "домашний путь с именем"),
+            (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), "почта"),
+            (re.compile(r"\b(?:sk|pk|ghp|gho|xox[baprs])[-_][A-Za-z0-9_-]{16,}\b"), "похоже на токен"),
+        ]
+        # Мягкие: у них бывает законный смысл, поэтому предупреждение, а не ошибка.
+        # Ошибка здесь наказывала бы за фразу «открой issue на github.com».
+        SOFT = [
+            (re.compile(r"\b[a-z0-9][a-z0-9-]{1,60}\.(?:ru|com|net|org|io|dev|local|su|рф)\b", re.I), "домен"),
+            (re.compile(r":\d{4,5}\b"),                             "похоже на порт"),
+        ]
+        anon_errors, anon_warns = [], []
+        for f in anon_files:
+            body, _ = read(f)
+            for i, line in enumerate(body.splitlines(), 1):
+                for rx, why in HARD:
+                    # finditer, а не search: на одной строке частностей бывает две
+                    # («ключ /Users/имя/.ssh/x на 192.0.2.10»), и сообщённая первая
+                    # прятала бы вторую до следующего прогона — починка по одному
+                    # экземпляру вместо класса, ровно то, что этот файл проверяет.
+                    for m in rx.finditer(line):
+                        anon_errors.append(f"{f}:{i}: {why} — «{m.group(0)[:40]}»")
+                for rx, why in SOFT:
+                    m = rx.search(line)
+                    if m:
+                        anon_warns.append(f"{f}:{i}: {why} — «{m.group(0)[:40]}»")
+        if anon_errors:
+            ok = False
+            print(f"❌ ОБЕЗЛИЧЕННОСТЬ ({len(anon_errors)}): в файле, объявленном обезличенным, есть частности:")
+            for e in anon_errors:
+                print(f"    • {e}")
+            print("    Обезличенность пишется сразу, а не чистится потом (§ 9.4 п. 2): к моменту")
+            print("    отправки о правиле уже забыли. Убери частность — она относится к содержанию")
+            print("    задачи, а не к тому, как агент с ней обошёлся.\n")
+        elif anon_files:
+            print(f"✅ Обезличенность: частностей не найдено (файлов: {len(anon_files)})")
+            print("   Это «известных форм нет», а не «утечки нет»: пересказанный секрет машина")
+            print("   не видит (§ 10.1).\n")
+        if anon_warns:
+            print(f"⚠️  ВОЗМОЖНЫЕ ЧАСТНОСТИ ({len(anon_warns)}): предупреждение, не ошибка — у них бывает")
+            print("    законный смысл («открой issue на github.com»). Глянь глазами:")
+            for w in anon_warns:
+                print(f"    • {w}")
+            print()
 
     if ok:
         # Честная формулировка вердикта (core.md § 10.1): не «база здорова».
