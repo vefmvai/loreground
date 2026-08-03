@@ -21,6 +21,11 @@
   • комплект есть, версии разошлись — называет обе и говорит, что делать;
   • комплект есть, а версия сборки не записана — говорит именно это: отследить
                                    расхождение нечем, и это не «всё в порядке».
+
+Честная граница. Стандарт (§ 9.3 п. 6) разрешает версии сборки два места — строку
+комплектации или отдельную метку. Этот сторож знает **только метку**: агенту, который
+записал версию в конфиг, он скажет «не записано». Граница названа здесь, а не оставлена
+на догадку, потому что молчание про неё читалось бы как «проверено везде».
 """
 import json
 import os
@@ -28,10 +33,18 @@ import re
 import sys
 
 MARKER = ".loreground"
-BUILT_ON_RE = re.compile(r"^\s*собран_на_версии\s*:\s*(.+?)\s*$", re.M)
+# Класс пробелов — ГОРИЗОНТАЛЬНЫЙ, не `\s`. `\s` включает перевод строки, и при пустом
+# значении поля выражение перешагивало на следующую строку метки, забирая её как версию:
+# соседняя строка — это `собран: <дата>`, то есть сторож, чья работа не дать выдумать
+# версию, сам подставлял дату и велел агенту сказать это человеку. Ровно та подделка
+# провенанса, против которой он написан.
+BUILT_ON_RE = re.compile(r"^[ \t]*собран_на_версии[ \t]*:[ \t]*(.+?)[ \t]*$", re.M)
 # Значение, которое навык сборки пишет, когда манифест прочитать не удалось. Считается
 # отсутствием версии, а не версией с таким именем.
 UNKNOWN = "неизвестна"
+# Кавычки и апострофы вокруг значения — косметика записи, а не часть номера. Метка
+# пишется `printf`-ом без кавычек, но человек правит её руками и кавычки ставит.
+TRIM = " \t\"'"
 
 
 def say(message):
@@ -51,6 +64,10 @@ def say(message):
 
 
 def read(path):
+    # Только обычные файлы. FIFO и символьное устройство при открытии не ошибаются —
+    # они блокируются навсегда, и хук вешает старт сессии вместо того, чтобы упасть.
+    if not os.path.isfile(path):
+        return None
     try:
         with open(path, encoding="utf-8") as handle:
             return handle.read()
@@ -66,10 +83,18 @@ def kit_version(plugin_root):
     if text is None:
         return None
     try:
-        value = json.loads(text).get("version")
+        data = json.loads(text)
     except ValueError:
         return None
-    return value if isinstance(value, str) and value.strip() else None
+    # Манифест бывает не объектом (массив, строка) — `.get` на таком падает, а падение
+    # хука тихое, то есть неотличимо от «всё в порядке».
+    if not isinstance(data, dict):
+        return None
+    value = data.get("version")
+    if not isinstance(value, str):
+        return None
+    value = value.strip(TRIM)
+    return value or None
 
 
 def main():
@@ -88,7 +113,7 @@ def main():
         return
 
     built = BUILT_ON_RE.search(marker_text)
-    built_version = built.group(1) if built else None
+    built_version = built.group(1).strip(TRIM) if built else None
     if not built_version or built_version == UNKNOWN:
         say(
             "в метке " + MARKER + " не записано, на какой версии собрано изделие "
