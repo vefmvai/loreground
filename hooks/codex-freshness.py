@@ -72,12 +72,20 @@ def main():
     if not os.path.exists(os.path.join(project, MARKER)):
         return
 
-    # Источник: комплект рядом (режим «Указатель») либо перенесённая копия («Копия»).
-    candidates = []
+    # Источник: перенесённый стандарт изделия («Копия», «Реплика») либо, если своего
+    # нет, комплект рядом («Указатель»).
+    #
+    # Порядок именно такой, и он важнее, чем кажется. Копия кодекса в правилах агента
+    # обязана совпадать с ТЕМ стандартом, по которому изделие живёт, а живёт оно по
+    # своему. Спроси сначала комплект — и у изделия, сознательно стоящего на прошлой
+    # версии, сторож объявит устаревшим кодекс, который на самом деле в порядке. Это
+    # ложная тревога, а ложная тревога убивает сторожа надёжнее молчания: её начинают
+    # пролистывать. Расхождение изделия с комплектом — отдельный факт, и у него
+    # отдельный сторож (version-drift.py).
+    candidates = [os.path.join(project, "standard", "codex.md")]
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if plugin_root:
         candidates.append(os.path.join(plugin_root, "standard", "codex.md"))
-    candidates.append(os.path.join(project, "standard", "codex.md"))
 
     source_text = source_path = None
     for candidate in candidates:
