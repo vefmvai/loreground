@@ -56,7 +56,12 @@ def inside(project, rel):
 def main():
     project = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
 
-    if not os.path.exists(os.path.join(project, MARKER)):
+    # Ворота комплекта. Метка — обычный ФАЙЛ: папка с таким именем меткой не считается.
+    # `isfile`, а не `exists`, — потому что ворота у всех хуков комплекта объявлены одни
+    # (`hooks.json`), и разъезд на краю уже случался: `mkdir .loreground` глушил ровно
+    # двух сторожей, пока двое других продолжали говорить. Агент выглядел оснащённым,
+    # а слежение за версиями было мертво.
+    if not os.path.isfile(os.path.join(project, MARKER)):
         return
 
     config_path = os.path.join(project, CONFIG)

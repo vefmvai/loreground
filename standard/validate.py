@@ -418,7 +418,11 @@ def root_ids(data) -> set:
         value = [value]
     if not isinstance(value, list):
         return set()
-    return {str(v).strip() for v in value if str(v).strip()}
+    # Регистр не различает корни: `reg-2024-017` и `Reg-2024-017` — одна работа.
+    # Пробел уже нормализовался, а регистр — нет, и на этой половинчатости корни
+    # расходились надвое при честно заполненном поле. Имена заметок нормализуются
+    # регистронезависимо (`norm_name`), идентификаторы обязаны так же.
+    return {str(v).strip().casefold() for v in value if str(v).strip()}
 
 
 def independent_roots(data: dict, source_roots=None, name_to_base=None) -> int:
@@ -427,29 +431,44 @@ def independent_roots(data: dict, source_roots=None, name_to_base=None) -> int:
     source_roots: имя источника (lowercase) -> set(root_id). Источники, делящие
     хотя бы один root_id, — один корень в ЛЮБОЙ заметке (§ 4.4).
     """
-    sources = link_names(data.get("sources"))
-    if not sources:
+    raw_sources = link_names(data.get("sources"))
+    if not raw_sources:
         return 0
+
     # Один и тот же источник, названный двумя своими законными именами (title и
     # alias, имя файла и заголовок), — ОДИН корень. Счёт сырых строк разрешал бы
     # прачечную из одного файла.
-    if name_to_base:
-        seen_files, uniq = set(), []
-        for src in sources:
-            key = name_to_base.get(norm_name(src), norm_name(src))
-            if key not in seen_files:
-                seen_files.add(key); uniq.append(src)
-        sources = uniq
+    #
+    # Приведение к каноническому имени делается ОДИН раз и применяется ко ВСЕМУ
+    # дальнейшему счёту — и к `sources`, и к группам `same_root`. Пока канон был
+    # только у `sources`, оставалась дыра ровно в той половине, где зависимость
+    # объявлена честно: источник процитирован алиасом, группа названа заголовком,
+    # строки не совпали, группа не связалась — и `confirmed` проходил на одном
+    # корне. Обход бил в проверку 5, единственную машину слоя доверия, и обходился
+    # он не подлогом, а законным вторым именем.
+    def canon(name):
+        key = norm_name(name)
+        return name_to_base.get(key, key) if name_to_base else key
+
+    sources, seen_canon = [], set()
+    for src in raw_sources:
+        key = canon(src)
+        if key not in seen_canon:
+            seen_canon.add(key); sources.append(key)
+
     groups = []
     for grp in data.get("same_root") or []:
-        names = set(link_names(grp)) if isinstance(grp, list) else set()
+        names = {canon(n) for n in link_names(grp)} if isinstance(grp, list) else set()
         if names:
             groups.append(names)
     # группы по общему root_id: свойство пары источников, не утверждения (§ 4.4)
     if source_roots:
+        canon_roots = {}
+        for name, rids in source_roots.items():
+            canon_roots.setdefault(canon(name), set()).update(rids)
         by_root = {}
         for s in sources:
-            for rid in source_roots.get(norm_name(s), ()):
+            for rid in canon_roots.get(s, ()):
                 by_root.setdefault(rid, set()).add(s)
         groups.extend(g for g in by_root.values() if len(g) > 1)
     # объединить пересекающиеся группы (общий член = общий корень)
