@@ -139,9 +139,15 @@ def main():
     emit(head + "\n\n" + output + tail)
 
 
+
+
+# Ответ на собственную поломку — общий для всех хуков, дом один: _broken.py.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _broken import сломался  # noqa: E402
+
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as err:
+        сломался("validate-on-write.py", err, "PostToolUse")
     sys.exit(0)

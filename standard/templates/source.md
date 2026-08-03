@@ -3,7 +3,7 @@ title: <имя источника — совпадает с именем фай�
 type: source
 schema_version: "1.0"
 status: stable
-created: 2026-01-01
+created: <ГГГГ-ММ-ДД — сегодня, командой `date +%F`; выдуманная дата хуже отсутствующей (§ 3.1)>
 source_type: expert-practitioner   # словарь core.md § 4.2 (research | official-docs | ...)
 reliability: B                     # A | B | C | F (core.md § 5.1) — базовый ориентир по source_type
 author: <автор / организация>

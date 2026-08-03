@@ -3,7 +3,7 @@ title: 00-index
 type: moc
 schema_version: "1.0"
 status: draft
-created: 2026-01-01
+created: <ГГГГ-ММ-ДД — сегодня, командой `date +%F`; выдуманная дата хуже отсутствующей (§ 3.1)>
 tags: [индекс]
 ---
 

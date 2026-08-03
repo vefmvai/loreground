@@ -216,13 +216,15 @@ def main():
     )
 
 
+
+
+# Ответ на собственную поломку — общий для всех хуков, дом один: _broken.py.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _broken import сломался  # noqa: E402
+
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        # Сторож не имеет права мешать работе: любая своя поломка — тихий выход,
-        # а не сорванный старт сессии. Молчание здесь означает «сторож не сработал»,
-        # и это осознанная цена: альтернатива — трейсбек в лицо человеку при каждом
-        # старте.
-        pass
+    except Exception as err:
+        сломался("codex-freshness.py", err, "SessionStart")
     sys.exit(0)
