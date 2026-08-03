@@ -873,12 +873,19 @@ if grep -q '2020-01-01' "$TIN/.loreground"; then ok "сборка: дата в �
 # Метка новой сборки обязана нести РЕЖИМ: без него сторож расхождения версий не может
 # сказать, сменились ли правила под базой, и прежде выводил режим из наличия папки —
 # то есть угадывал, а на переведённом наполовину агенте угадывал неверно.
-rm -f "$TIN/.loreground"
-( cd "$TIN" && CLAUDE_PLUGIN_ROOT="$KIT" NAME=x MODE=копия bash step8.sh ) >/dev/null 2>&1
-if grep -q '^режим: копия' "$TIN/.loreground"; then ok "сборка: режим подключения записан в метку"; else
-  bad "сборка: метка без режима — сторож версий будет его угадывать"; fi
-if grep -q '^собран_на_версии:' "$TIN/.loreground"; then ok "сборка: версия сборки записана в метку"; else
-  bad "сборка: метка без версии сборки"; fi
+#
+# Проверяется САМ СТАНОК, а не прогон с подставленным значением: скрипт присваивает
+# MODE сам, поэтому переменная окружения его не перекрывает, и прогон показал бы то,
+# что подложил тест, а не то, что делает навык.
+grep -q 'режим: %s' "$TIN/step8.sh" \
+  && ok "сборка: метка несёт поле режима" \
+  || bad "сборка: в метке нет поля режима — сторож версий будет его угадывать"
+grep -qE '^MODE=' "$TIN/step8.sh" \
+  && ok "сборка: MODE присваивается, а не берётся из ниоткуда" \
+  || bad "сборка: MODE подставляется в метку, но нигде не присвоен — поле уйдёт пустым"
+grep -q 'собран_на_версии: %s' "$TIN/step8.sh" \
+  && ok "сборка: метка несёт версию сборки" \
+  || bad "сборка: в метке нет версии сборки"
 rm -rf "$TIN"
 
 echo "── Разбор сессии: прошлый отчёт не затирается ──"
@@ -1038,7 +1045,7 @@ rm -f "$THK/AGENTS.md"
 # вовсе. Это ровно та форма, ради отказа от которой кодекс кладут копией (§ 9.3 п. 5).
 printf '# Правила\n\nКодекс: см. standard/codex.md, версия кодекса %s.\n' "$SRCV" > "$THK/CLAUDE.md"
 OUT=$(hook "$KIT")
-has "хук: строка про кодекс без текста кодекса названа" "самого кодекса нет"
+has "хук: строка про кодекс без текста кодекса названа" "неполна: из"
 
 printf '# Правила\n\n%s\n' "$(copyblock 0)" > "$THK/CLAUDE.md"
 OUT=$(hook "$KIT"); RC=$?
@@ -1178,10 +1185,16 @@ printf '{"name":"loreground","version":"9.9.9"}\n' > "$TVD/kit/.claude-plugin/pl
 rm -f "$TVD/proj/.loreground"; mkdir -p "$TVD/proj/.loreground"
 mkdir -p "$TVD/proj/knowledge"; printf 'title: x\n' > "$TVD/proj/knowledge/00-index.md"
 printf 'СТАНДАРТ: standard/core.md\n' > "$TVD/proj/CLAUDE.md"
-printf 'startup:\n  loads:\n    - what: правила агента\n      by: hook\n      path: CLAUDE.md\n' > "$TVD/proj/config.yaml"
+printf 'startup:\n  loads:\n    - what: правила агента\n      by: hook\n      path: CLAUDE.md\nvalidate:\n  command: python3 %s/standard/validate.py knowledge\n' "$KIT" > "$TVD/proj/config.yaml"
+# Вход каждому хуку даётся НАСТОЯЩИЙ. Прежняя редакция кормила всех `</dev/null`, и
+# `validate-on-write` падал на чтении события РАНЬШЕ ворот — то есть молчал по другой
+# причине, а тест засчитывал это как «ворота держат». Мутация `isfile`→`exists` в нём
+# не ловилась: машина выглядела покрытием и им не была.
+printf 'title: x\n' > "$TVD/proj/knowledge/новая.md"
+EVENT='{"tool_name":"Write","tool_input":{"file_path":"'"$TVD"'/proj/knowledge/новая.md"}}'
 GATE_TALKERS=""
 for h in startup-load codex-freshness version-drift validate-on-write; do
-  GO=$( (cd "$TVD/proj" && CLAUDE_PROJECT_DIR="$TVD/proj" CLAUDE_PLUGIN_ROOT="$KIT" python3 "$KIT/hooks/$h.py" </dev/null 2>&1) )
+  GO=$( (cd "$TVD/proj" && CLAUDE_PROJECT_DIR="$TVD/proj" CLAUDE_PLUGIN_ROOT="$KIT" python3 "$KIT/hooks/$h.py" <<< "$EVENT" 2>&1) )
   [ -n "$GO" ] && GATE_TALKERS="$GATE_TALKERS $h"
 done
 if [ -z "$GATE_TALKERS" ]; then ok "ворота: папку с именем метки меткой не считает ни один из четырёх хуков"; else
@@ -1196,6 +1209,21 @@ if echo "$OUT" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0
   ok "версии: вывод — валидный JSON нужного события"
 else bad "версии: вывод не разбирается как JSON события SessionStart"; fi
 rm -rf "$TVD"
+
+# --check-anon: «проверять было нечего» обязано быть кодом 2, а не зелёным нулём.
+# Иначе навык разбора читает ноль как «частностей нет» — пустой вывод как доказательство,
+# причём в проверке, стоящей между личным адресом и публикацией.
+TAN="$(mktemp -d)"; mkdir -p "$TAN/пусто"
+python3 "$V" --check-anon "$TAN/нет-такого" >/dev/null 2>&1
+if [ $? -eq 2 ]; then ok "22: несуществующий путь --check-anon даёт код 2"; else
+  bad "22: несуществующий путь --check-anon не дал кода 2 — «не проверяли» читается как «чисто»"; fi
+python3 "$V" --check-anon "$TAN/пусто" >/dev/null 2>&1
+if [ $? -eq 2 ]; then ok "22: пустая папка --check-anon даёт код 2"; else
+  bad "22: пустая папка --check-anon не дала кода 2"; fi
+printf 'чисто\n' > "$TAN/пусто/о.md"
+python3 "$V" --check-anon "$TAN/пусто" >/dev/null 2>&1
+if [ $? -eq 0 ]; then ok "22: чистый отчёт даёт код 0"; else bad "22: чистый отчёт не зелёный"; fi
+rm -rf "$TAN"
 
 echo "── Режимы подключения: два, равноправные ──"
 # Режимы живут в двух домах — норме (core.md § 9.3) и процедуре (init). Разъезд домов
