@@ -1,0 +1,95 @@
+name: Находка про стандарт
+description: Урок, верный любому агенту, — из разбора сессии /loreground:retro
+title: "[находка] "
+labels: ["находка-стандарт"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо. Пиши черновиком и своими словами — причёсывать не надо.
+
+        Всё, что спрашивается ниже, умеет собрать твой агент. Скажи ему:
+        «оформи предложение автору стандарта по моим разборам».
+
+        Личного здесь быть не должно. Перед отправкой прогони проверку
+        обезличенности — она есть в комплекте, `--check-anon`.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Одной-двумя фразами. Что агент сделал не так или чего ему не хватило.
+    validations:
+      required: true
+
+  - type: textarea
+    id: universal
+    attributes:
+      label: Почему это верно любому агенту
+      description: >
+        Проверочный вопрос из навыка разбора: верно ли это для агента, который про
+        твою установку вообще не слышал? Если ответ «нет» — находка про твоего
+        агента, и её дом в его правилах, а не здесь.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия комплекта
+      description: >
+        Строка `собран_на_версии` из метки `.loreground`. Если метки нет —
+        `claude plugin list`. Не помнишь — так и напиши, это лучше выдуманного номера.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Режим подключения ядра
+      description: Строка `режим` из метки `.loreground`.
+      options:
+        - копия
+        - указатель
+        - не знаю
+    validations:
+      required: true
+
+  - type: dropdown
+    id: trust
+    attributes:
+      label: Слой доверия
+      description: Ключ `trust_layer` из твоего `config.yaml`.
+      options:
+        - включён
+        - выключен
+        - не знаю
+    validations:
+      required: true
+
+  - type: textarea
+    id: excerpt
+    attributes:
+      label: Отрывок отчёта разбора
+      description: >
+        Обезличенный. Если у находки есть привязка к моменту сессии — номер реплики
+        и цитата, — она здесь и нужна: без неё находку нечем проверить.
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Твой config.yaml — необязательно, но помогает больше всего
+      description: >
+        По нему видно, какими частями стандарта ты пользуешься, а какими нет.
+        Это самая честная обратная связь про стандарт: где он оказался слишком
+        дорог, там его выключили. Личного в нём нет — объявленные типы, паспорт
+        стартовой загрузки и команда прогона.
+      render: yaml
+
+  - type: checkboxes
+    id: anon
+    attributes:
+      label: Перед отправкой
+      options:
+        - label: Здесь нет адресов, ключей, почты и домашних путей с моим именем
+          required: true

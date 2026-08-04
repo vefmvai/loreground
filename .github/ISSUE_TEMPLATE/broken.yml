@@ -1,0 +1,54 @@
+name: Не заработало
+description: Поломка, непонятная формулировка, отвалилось на другой системе
+title: "[не работает] "
+labels: ["не заработало"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Проверено на macOS. На Windows и Linux — не проверялось, и это сказано
+        прямо в README. Если сломалось там, отчёт особенно ценен.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: Что не сработало
+      description: Что делал, что ожидал, что получил. Вывод команды — целиком, не пересказом.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия комплекта
+      description: "`claude plugin list` либо строка `собран_на_версии` из метки `.loreground`."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Система
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - другое
+    validations:
+      required: true
+
+  - type: input
+    id: deps
+    attributes:
+      label: Что стоит на машине
+      description: >
+        Вывод `python3 --version`, `python3 -c "import yaml"`, `jq --version`.
+        Не знаешь — попроси агента проверить и вставь, что он ответил.
+
+  - type: checkboxes
+    id: anon
+    attributes:
+      label: Перед отправкой
+      options:
+        - label: В выводе нет адресов, ключей и домашних путей с моим именем
+          required: true
