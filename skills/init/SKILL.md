@@ -34,7 +34,7 @@ echo "── git ──";             git rev-parse --is-inside-work-tree 2>/dev
 echo "── похоже на базу знаний? ──"
 grep -rl --include='*.md' -m1 '^---' . 2>/dev/null | grep -v '^./\.' | head -5
 echo "── версия комплекта ──"
-python3 -c "import json,os;p=os.environ.get('CLAUDE_PLUGIN_ROOT','.');print(json.load(open(p+'/.claude-plugin/plugin.json'))['version'])" 2>/dev/null || echo "версия не определена"
+python3 -c "import json,os;p=os.environ.get('CLAUDE_PLUGIN_ROOT','.');print(json.load(open(p+'/.claude-plugin/plugin.json',encoding='utf-8'))['version'])" 2>/dev/null || echo "версия не определена"
 ```
 
 Вывод определяет режим. Занятое имя — не повод останавливаться: спросить человека,
@@ -275,7 +275,11 @@ find <папка> -type f -exec cat {} + | wc -c     # папка целиком
 
 NAME="<короткое имя агента, спросить или взять имя папки>"
 MODE="<копия|указатель — ответ человека на шаг 2, вопрос 3>"
-VER=$(python3 -c "import json,os;print(json.load(open(os.environ['CLAUDE_PLUGIN_ROOT']+'/.claude-plugin/plugin.json'))['version'])" 2>/dev/null || echo "неизвестна")
+# Кодировка манифеста названа явно. Иначе она берётся у локали машины, и на русской
+# Windows чтение падает на первом же нелатинском байте описания плагина. Промах здесь
+# особенно тих: он глушится в «неизвестна» и уезжает в метку сборки, после чего сторожу
+# расхождения версий нечего сравнивать — а его молчание значит «версии сходятся».
+VER=$(python3 -c "import json,os;print(json.load(open(os.environ['CLAUDE_PLUGIN_ROOT']+'/.claude-plugin/plugin.json',encoding='utf-8'))['version'])" 2>/dev/null || echo "неизвестна")
 # Метка тоже не затирается вслепую: в ней дата сборки, а повторный запуск навыка на
 # живом агенте сдвинул бы её на сегодня — то есть соврал бы о том, когда агента собрали.
 if [ -e .loreground ]; then

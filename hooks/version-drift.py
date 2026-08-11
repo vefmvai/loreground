@@ -31,6 +31,12 @@ import os
 import re
 import sys
 
+# Помощники комплекта, дом у каждого один: печать строки в контекст и ответ на свою
+# поломку. Лежат рядом со скриптом, поэтому путь к ним — от собственного файла.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _out import сказать  # noqa: E402
+from _broken import сломался  # noqa: E402
+
 MARKER = ".loreground"
 # Класс пробелов — ГОРИЗОНТАЛЬНЫЙ, не `\s`. `\s` включает перевод строки, и при пустом
 # значении поля выражение перешагивало на следующую строку метки, забирая её как версию:
@@ -52,17 +58,7 @@ TRIM = " \t\"'"
 
 def say(message):
     """Положить строку в контекст сессии и выйти."""
-    json.dump(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": "Loreground: " + message,
-            }
-        },
-        sys.stdout,
-        ensure_ascii=False,
-    )
-    sys.stdout.write("\n")
+    сказать("SessionStart", "Loreground: " + message)
     sys.exit(0)
 
 
@@ -166,10 +162,6 @@ def main():
 
 
 
-
-# Ответ на собственную поломку — общий для всех хуков, дом один: _broken.py.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _broken import сломался  # noqa: E402
 
 if __name__ == "__main__":
     try:

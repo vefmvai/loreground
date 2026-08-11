@@ -14,9 +14,14 @@
     он не даёт: строка о пробое приходит вместе с загрузкой;
   • молчит, когда грузить нечего: нет метки, нет конфига, нет строк `by: hook`.
 """
-import json
 import os
 import sys
+
+# Помощники комплекта, дом у каждого один: печать строки в контекст и ответ на свою
+# поломку. Лежат рядом со скриптом, поэтому путь к ним — от собственного файла.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _out import сказать  # noqa: E402
+from _broken import сломался  # noqa: E402
 
 MARKER = ".loreground"
 CONFIG = "config.yaml"
@@ -24,12 +29,7 @@ HEAD = "Loreground, стартовая загрузка по паспорту"
 
 
 def emit(message):
-    json.dump(
-        {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": message}},
-        sys.stdout,
-        ensure_ascii=False,
-    )
-    sys.stdout.write("\n")
+    сказать("SessionStart", message)
     sys.exit(0)
 
 
@@ -71,9 +71,14 @@ def main():
     try:
         import yaml
     except ImportError:
+        # Интерпретатор называется свой: `python3` на машине бывает не один, и «поставил,
+        # а всё равно не видит» получается ровно из этого. Хуки зовутся строкой `python3`
+        # из hooks.json, настройке она не поддаётся — значит библиотека нужна тому Python,
+        # который в PATH первым. Он же и печатает эту строку.
         emit(
             HEAD + ": паспорт есть, но PyYAML не установлен — прочитать его нечем. "
-            "Объявленное этим паспортом в контекст НЕ загружено. Установить: pip install pyyaml"
+            "Объявленное этим паспортом в контекст НЕ загружено. Установить именно в этот "
+            "интерпретатор: " + sys.executable + " -m pip install pyyaml"
         )
 
     try:
@@ -141,10 +146,6 @@ def main():
 
 
 
-
-# Ответ на собственную поломку — общий для всех хуков, дом один: _broken.py.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _broken import сломался  # noqa: E402
 
 if __name__ == "__main__":
     try:

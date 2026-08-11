@@ -276,6 +276,37 @@ OUT=$(python3 "$V" fixtures/broken/knowledge 2>&1); RC=$?
 if [ "$RC" -eq 1 ]; then ok "с PyYAML та же база проверяется полностью"; else bad "exit $RC на ломаной базе"; fi
 rm -rf "$TMP"
 
+echo "── Совет «поставь PyYAML» называет интерпретатор, а не просто pip ──"
+# Отчёт с macOS: на машине два Python (системный и из Homebrew), и слово `python3` значит
+# в разных местах разное. Голое `pip install pyyaml` клало библиотеку в один интерпретатор,
+# пока прогон шёл другим, — исход «поставил, а он всё равно не видит». Спрашивать у
+# пользователя нечего: кто печатает совет, тот и знает свой путь.
+SELF=$(python3 -c "import sys; print(sys.executable)")
+TMP=$(mktemp -d); printf 'raise ImportError("PyYAML спрятан для теста")\n' > "$TMP/yaml.py"
+OUT=$(PYTHONPATH="$TMP" python3 "$V" fixtures/broken/knowledge 2>&1)
+has "гейт называет свой интерпретатор полным путём" "$SELF -m pip install pyyaml"
+rm -rf "$TMP"
+# Класс, а не адрес: перебираются ВСЕ файлы продукта, где вообще советуют ставить PyYAML.
+# Список берётся поиском, а не памятью, — иначе следующий такой совет пройдёт молча.
+#
+# Скоуп здесь весь комплект, а не только код, и это не роскошь: прежняя редакция
+# смотрела `hooks/` и `standard/*.py`, из-за чего сам стандарт (`core.md`, § 10)
+# продолжал советовать голое `pip install pyyaml` и вдобавок обещал, что это «единственное,
+# что требуется от машины». Проверка была зелёной при открытом классе — в документе,
+# который читают внимательнее всего.
+#
+# Годным считается один из двух ответов, потому что места разной природы: код обязан
+# назвать СВОЙ интерпретатор (`sys.executable`), проза обязана назвать сам вопрос — в ней
+# подставить путь неоткуда, но и промолчать о нём нельзя.
+VAGUE=0; ADVICE=0
+for f in $(grep -rl "pip install pyyaml" ../.. --include='*.py' --include='*.md' --include='*.sh' 2>/dev/null | grep -v '/fixtures/'); do
+  ADVICE=$((ADVICE+1))
+  grep -q "sys\.executable" "$f" || grep -qi "интерпретатор" "$f" || VAGUE=$((VAGUE+1))
+done
+[ "$ADVICE" -gt 0 ] || bad "совет про PyYAML: перебор пуст — искать нечего, а не «чисто»"
+if [ "$VAGUE" -eq 0 ]; then ok "совет про PyYAML ($ADVICE мест) везде называет интерпретатор"
+else bad "$VAGUE из $ADVICE мест советуют голое «pip install pyyaml» — библиотека уедет не в тот Python"; fi
+
 echo "── Markdown-ссылки видимы валидатору ──"
 # Класс «ложный зелёный»: [текст](файл.md) для валидатора не существовали —
 # ложные сироты и «✅ битых ссылок нет» при реальных битых.
@@ -460,7 +491,9 @@ run_limited() {
 import subprocess, sys
 lim = float(sys.argv[1]); cmd = sys.argv[2:]
 try:
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=lim)
+    # Кодировка названа явно, а не взята у локали: `text=True` — тот самый идиом,
+    # из-за которого отчёт прогона терялся целиком на машине с русской локалью.
+    p = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=lim)
     print(p.stdout, end="")
     sys.exit(p.returncode)
 except subprocess.TimeoutExpired:
@@ -643,7 +676,7 @@ if echo "$OUT" | grep -q "ДУБЛИ-СУЩНОСТИ"; then bad "петля д�
 mkdir -p "$TMP/deep"; idx "$TMP/deep" "x"
 python3 -c "
 import sys; d=sys.argv[1]
-open(d+'/x.md','w').write('---\ntitle: D\ntype: concept\nschema_version: \"1.0\"\ndeep: '+'['*3000+']'*3000+'\n---\nx\n')" "$TMP/deep"
+open(d+'/x.md','w',encoding='utf-8').write('---\ntitle: D\ntype: concept\nschema_version: \"1.0\"\ndeep: '+'['*3000+']'*3000+'\n---\nx\n')" "$TMP/deep"
 OUT=$(python3 "$V" "$TMP/deep" 2>&1)
 if echo "$OUT" | grep -q "Traceback"; then bad "аномальная вложенность роняет трейсбеком"; else ok "аномальная вложенность — сообщение, не трейсбек"; fi
 has "вложенность названа поимённо" "вложен слишком глубоко"
@@ -744,6 +777,7 @@ printf 'validate:\n  command: python3 %s/standard/validate.py knowledge\n' "$KIT
 OUT=$(PYTHONPATH="$NOY" vw Write "$TVW/knowledge/Битая.md" | ctx)
 has "валидатор-хук: отсутствие PyYAML названо" "PyYAML не установлен"
 has "валидатор-хук: без PyYAML проверка объявлена невыполненной" "НЕ выполнена"
+has "валидатор-хук: назван интерпретатор, в который ставить" "$SELF -m pip install pyyaml"
 rm -rf "$NOY"
 
 # Два РАЗНЫХ пути к молчанию, и оба надо пройти: без файла конфига выход происходит
@@ -858,6 +892,187 @@ OUT=$(PYTHONIOENCODING=cp1251 python3 ../validate.py fixtures/broken/knowledge 2
 if [ "$RC" -eq 1 ]; then ok "не-UTF-8 консоль: ломаная база даёт 1 — вердикт настоящий"; else
   bad "не-UTF-8 консоль: ломаная база дала код $RC вместо 1"; fi
 
+echo "── Хуки при чужой локали: говорят UTF-8 и не теряют отчёт ──"
+# Раздел выше — про валидатор на КОНСОЛИ. Здесь другая сторона: хуки и то, что они
+# отдают хозяину сессии. По отчёту с русской Windows (локаль cp1251) обе стороны разговора
+# брали кодировку у системы, и обе ошибались.
+#   • Хуки печатали JSON в `sys.stdout` как есть: байты уезжали в cp1251, а читающая
+#     сторона ждёт UTF-8.
+#   • Автопрогон читал ответ валидатора через `text=True`, то есть тоже по локали. Ответ
+#     приходил в UTF-8, расшифровка падала внутри чтения, и отчёт пропадал ЦЕЛИКОМ —
+#     а шапка «найдены проблемы, чини сейчас» оставалась. Худший из возможных исходов:
+#     содержания нет, а выглядит содержательным.
+# Локаль подменяется переменной окружения — стенда на русской Windows у нас нет, и
+# «работает на Windows» этим не доказывается: доказывается, что кодировка больше не
+# берётся у системы ни с одной из двух сторон.
+TEN="$(mktemp -d)"; mkdir -p "$TEN/knowledge" "$TEN/standard" "$TEN/hooks"
+cp ../validate.py "$TEN/standard/"
+printf 'имя: тест\n' > "$TEN/.loreground"
+printf 'validate:\n  command: python3 standard/validate.py knowledge --core standard\n' > "$TEN/config.yaml"
+printf 'черновик\n' > "$TEN/knowledge/Битая.md"   # база заведомо красная: молчать не о чем
+utf8ok() {   # $1 — файл с байтами вывода; печатает ДА / НЕТ / ПУСТО
+  python3 -c "
+import sys
+d = open(sys.argv[1], 'rb').read()
+if not d: print('ПУСТО'); raise SystemExit
+try:
+    d.decode('utf-8'); print('ДА')
+except UnicodeDecodeError: print('НЕТ')" "$1"
+}
+ctxf() {   # $1 — файл с выводом хука; печатает то, что хук положил в контекст
+  python3 -c "
+import json, sys
+print(json.load(open(sys.argv[1], encoding='utf-8'))['hookSpecificOutput']['additionalContext'])" "$1"
+}
+
+# 1. Перебор ВСЕХ хуков папки, список — с диска: имена, набранные по памяти, не растут
+# вместе с папкой. Заговорить каждого заставляем его же поломкой: ответ на неё идёт через
+# ту же единственную печать, что и штатные сообщения (hooks/_out.py).
+HOOKS_E=$(ls "$KIT"/hooks/*.py | xargs -n1 basename | sed 's/\.py$//' | grep -v '^_')
+HOOKS_EN=$(echo "$HOOKS_E" | grep -c .)
+[ "$HOOKS_EN" -gt 0 ] || bad "кодировка: в hooks/ не найдено ни одного хука — перебор пуст, а не чист"
+BADENC=0; BADTXT=0
+for h in $HOOKS_E; do
+  cp "$KIT"/hooks/*.py "$TEN/hooks/"
+  sed "s|^def main():|def main():\n    raise RuntimeError('сбой изнутри хука')|" \
+    "$KIT/hooks/$h.py" > "$TEN/hooks/$h.py"
+  (cd "$TEN" && echo '{}' | PYTHONIOENCODING=cp1251 CLAUDE_PROJECT_DIR="$TEN" \
+     python3 "$TEN/hooks/$h.py" > "$TEN/o.bin" 2>/dev/null)
+  [ "$(utf8ok "$TEN/o.bin")" = "ДА" ] || BADENC=$((BADENC+1))
+  ctxf "$TEN/o.bin" 2>/dev/null | grep -qF "не отработал" || BADTXT=$((BADTXT+1))
+done
+if [ "$BADENC" -eq 0 ]; then ok "кодировка: все хуки папки ($HOOKS_EN) отдают UTF-8 при локали cp1251"
+else bad "кодировка: $BADENC хук(ов) отдали байты не в UTF-8 — кодировка взята у системы"; fi
+if [ "$BADTXT" -eq 0 ]; then ok "кодировка: русский текст при этом цел, а не потерян"
+else bad "кодировка: у $BADTXT хук(ов) текст не дочитался — починка кодировки съела содержание"; fi
+
+# 2. Структурная половина того же: печать живёт ОДНИМ домом. Пока `json.dump` стоял в
+# пяти файлах, решение о кодировке копировалось вместе с ним — и неверным оказалось во
+# всех пяти сразу. Новый хук со своей печатью вернул бы ровно это.
+OWNJSON=$(grep -l "json\.dump" "$KIT"/hooks/*.py | grep -cv "_out\.py$")
+if [ "$OWNJSON" -eq 0 ]; then ok "кодировка: печать в контекст живёт одним домом (hooks/_out.py)"
+else bad "кодировка: $OWNJSON файл(ов) в hooks/ печатают JSON сами — решение о кодировке снова в копиях"; fi
+
+# 3. Запасной выход. Кодировку потока назначить можно не всегда: под обёрткой `sys.stdout`
+# бывает подменён и метода `reconfigure` не имеет. Тогда текст уходит в ASCII-escape'ы —
+# некрасиво, зато побайтово совпадает с UTF-8 при любой локали. Проверяется обе половины:
+# байты чистые И содержание на месте.
+OUT=$(cd "$KIT/hooks" && python3 -c "
+import json, sys
+import _out
+
+class Подменённый:            # поток без reconfigure — как обёртка поверх stdout
+    def __init__(self): self.куски = []
+    def write(self, s): self.куски.append(s)
+
+настоящий, sys.stdout = sys.stdout, Подменённый()
+_out.сказать('SessionStart', 'Проверка русского текста')
+собрано = ''.join(sys.stdout.куски)
+sys.stdout = настоящий
+print('ТОЛЬКО-ASCII' if собрано.isascii() else 'ЕСТЬ-НЕ-ASCII')
+print(json.loads(собрано)['hookSpecificOutput']['additionalContext'])")
+has "кодировка: подменённый поток уводит вывод в ASCII" "ТОЛЬКО-ASCII"
+has "кодировка: содержание при этом не теряется" "Проверка русского текста"
+
+# 4. Отчёт прогона при чужой локали. Здесь жила вторая половина находки: шапка приезжала,
+# тело — нет. Проверяется не «нет ошибки», а наличие самих находок в тексте.
+vwe() {   # $1 — значение PYTHONIOENCODING; печатает то, что хук положил в контекст
+  printf '{"tool_name":"Write","cwd":"%s","tool_input":{"file_path":"%s"}}' \
+    "$TEN" "$TEN/knowledge/Битая.md" \
+    | (cd "$TEN" && PYTHONIOENCODING="$1" CLAUDE_PROJECT_DIR="$TEN" \
+         python3 "$KIT/hooks/validate-on-write.py") > "$TEN/vw.bin"
+  ctxf "$TEN/vw.bin"
+}
+OUT=$(vwe cp1251)
+has "кодировка: при локали cp1251 шапка отчёта приехала" "найдены проблемы"
+has "кодировка: тело отчёта приехало вместе с шапкой, а не потерялось" "FRONTMATTER"
+has "кодировка: находки отчёта читаемы по-русски" "СИРОТЫ"
+[ "$(utf8ok "$TEN/vw.bin")" = "ДА" ] && ok "кодировка: сам вывод автопрогона — валидный UTF-8" \
+  || bad "кодировка: вывод автопрогона не в UTF-8"
+
+# 5. Вторая сторона того же разговора: кодировку назначаем и ДОЧЕРНЕМУ процессу. Иначе
+# он взял бы её у той же локали, и одностороннее «читать как UTF-8» превратило бы русский
+# отчёт в мусор — починка одного входа ценой нового.
+cat > "$TEN/эхо.sh" <<'SH'
+#!/usr/bin/env bash
+exec python3 -c 'import sys; print("кодировка вывода прогона:", sys.stdout.encoding); sys.exit(1)'
+SH
+chmod +x "$TEN/эхо.sh"
+printf 'validate:\n  command: ./эхо.sh knowledge\n' > "$TEN/config.yaml"
+OUT=$(vwe cp1251)
+has "кодировка: прогону назначена кодировка вывода, а не взята у локали" "кодировка вывода прогона: utf-8"
+
+# 6. Перебор ВСЕГО продукта, а не только хуков. Первая редакция этой правки чинила код и
+# оставляла класс открытым в соседних файлах: скоуп проверки был `hooks/` и `standard/*.py`,
+# а `.md` в него не входил вовсе — и навык сборки продолжал читать манифест без кодировки,
+# на русской Windows молча теряя версию агента. Машина, слепая к половине продукта, зелена
+# при незакрытом классе; это ровно то, ради чего перебор делается по классу, а не по адресам.
+enc_sweep() {   # $1 — корень для перебора; печатает найденные места, по одному на строку
+  python3 - "$1" <<'PY'
+import os, re, sys
+корень = sys.argv[1]
+ПРИЗНАКИ = [(r"text\s*=\s*True|universal_newlines\s*=\s*True", "кодировка от локали (text=True)"),
+            (r"\bopen\s*\(", "open() без encoding="),
+            (r"subprocess\.(run|Popen|check_output|check_call|call)\s*\(", "запуск процесса без encoding=")]
+for папка, подпапки, файлы in os.walk(корень):
+    подпапки[:] = [d for d in подпапки if d not in ("__pycache__", ".git", "fixtures")]
+    for имя in sorted(файлы):
+        if not имя.endswith((".py", ".sh", ".md")):
+            continue
+        путь = os.path.join(папка, имя)
+        текст = open(путь, encoding="utf-8").read()
+        for правило, что in ПРИЗНАКИ:
+            for m in re.finditer(правило, текст):
+                начало = текст.rfind("\n", 0, m.start()) + 1
+                до = текст[начало:m.start()]
+                # Разговор о коде — не код: строка-комментарий и текст в одиночных
+                # бэктиках описывают идиом, а не исполняют его. Без этого различения
+                # проверка краснела бы на объяснении, почему так делать нельзя.
+                if "#" in до or до.count("`") % 2:
+                    continue
+                хвост = текст[m.start():m.start() + 400]
+                if "encoding=" in хвост:
+                    continue
+                if что.startswith("open") and re.search(r"['\"][rwax]?b[+]?['\"]", хвост[:220]):
+                    continue          # двоичное чтение кодировки не имеет
+                print(f"{os.path.relpath(путь, корень)}:{текст[:m.start()].count(chr(10)) + 1}  {что}")
+PY
+}
+ENC_HITS=$(enc_sweep "$KIT" | grep -c . || true)
+if [ "$ENC_HITS" -eq 0 ]; then ok "кодировка: во всём комплекте нет мест, где её берут у системы"
+else bad "кодировка: $ENC_HITS мест(а) в комплекте берут кодировку у системы — $(enc_sweep "$KIT" | tr '\n' '; ')"; fi
+# Полнота перебора доказывается экземпляром, которого в комплекте нет: если подсадить
+# каждый признак, команда обязана поймать все. Иначе «ничего не найдено» значит «плохо
+# искали», и зелёный тут — самая дорогая форма лжи.
+ENCSEED="$TEN/подсадка"; mkdir -p "$ENCSEED"
+# Сами формы собираются подстановкой, а не пишутся сюда буквально: этот файл входит в
+# перебор наравне с остальными, и подсадка, записанная в нём как есть, красила бы проверку
+# собственным текстом. Ловушка сработала при первом же прогоне — оставлена здесь записью.
+SEED_O=open; SEED_R=run; SEED_T=text
+printf 'import subprocess\nsubprocess.%s(["ls"], %s=True)\n' "$SEED_R" "$SEED_T" > "$ENCSEED/один.py"
+printf 'x = %s("файл.md").read()\n' "$SEED_O" > "$ENCSEED/два.py"
+printf 'import subprocess\nsubprocess.%s(["ls"], capture_output=True)\n' "$SEED_R" > "$ENCSEED/три.py"
+printf '```bash\npython3 -c "import json; json.load(%s(\x27м.json\x27))"\n```\n' "$SEED_O" > "$ENCSEED/четыре.md"
+# Считаются ФАЙЛЫ, а не срабатывания: в одном подсаженном файле признаков бывает два
+# (`text=True` и запуск без кодировки — это про один и тот же вызов), и счёт срабатываний
+# мерил бы не то, что проверяется, — «поймана ли каждая из четырёх форм».
+ENC_CAUGHT=$(enc_sweep "$ENCSEED" | cut -d: -f1 | sort -u | grep -c . || true)
+if [ "$ENC_CAUGHT" -eq 4 ]; then ok "кодировка: перебор ловит все четыре подсаженные формы (признак, а не знакомое написание)"
+else bad "кодировка: из четырёх подсаженных форм перебор поймал $ENC_CAUGHT — команда неполна, и её зелёный ничего не значит"; fi
+rm -rf "$ENCSEED"
+
+# 7. Последний рубеж: команду прогона пишет пользователь, и чужой скрипт отдаёт что
+# угодно. Нерасшифруемый байт обязан испортить знак, а не съесть отчёт целиком.
+printf '#!/usr/bin/env bash\nprintf "РАЗБОР: \\377\\376 и дальше текст\\n"\nexit 1\n' > "$TEN/кривой.sh"
+chmod +x "$TEN/кривой.sh"
+printf 'validate:\n  command: ./кривой.sh knowledge\n' > "$TEN/config.yaml"
+OUT=$(vwe utf-8)
+has "кодировка: нерасшифруемый байт прогона не съедает отчёт" "РАЗБОР"
+if echo "$OUT" | grep -qF "не отработал"; then
+  bad "кодировка: на нерасшифруемом байте хук объявил СВОЮ поломку вместо отчёта"; else
+  ok "кодировка: хук на этом не ломается — портится знак, а не отчёт"; fi
+rm -rf "$TEN"
+
 echo "── Падение валидатора — это код 2, а не 1 ──"
 # Прежде ловились два ИМЕНИ (RecursionError, KeyboardInterrupt), а любая другая поломка
 # уходила кодом 1 — неотличимо от честного «найдены проблемы», и чинить по нему шли базу
@@ -899,7 +1114,7 @@ rm -rf "$TBOOM"
 TPIPE="$(mktemp -d)"; mkdir -p "$TPIPE/knowledge"
 python3 -c "
 import sys
-for i in range(1200): open(f'{sys.argv[1]}/knowledge/z{i}.md','w').write('черновик\n')" "$TPIPE"
+for i in range(1200): open(f'{sys.argv[1]}/knowledge/z{i}.md','w',encoding='utf-8').write('черновик\n')" "$TPIPE"
 python3 ../validate.py "$TPIPE/knowledge" 2>/dev/null | head -1 >/dev/null; RC=${PIPESTATUS[0]}
 if [ "$RC" -eq 2 ]; then ok "обрыв вывода (| head): код 2 — прогон не состоялся"; else
   bad "обрыв вывода: код $RC вместо 2 — обещание «любое падение даёт 2» шире правды"; fi
@@ -1796,6 +2011,7 @@ HOOKS_N=$(echo "$HOOKS" | grep -c .)
 [ "$HOOKS_N" -gt 0 ] || bad "в hooks/ не найдено ни одного хука — перебор пуст, а не чист"
 MUTE=0
 NOISY=0
+NOCMD=0
 for h in $HOOKS; do
   # Копируется вся папка хуков: ответ на собственную поломку живёт в соседнем
   # файле (один дом на четыре хука), и хук без него — не тот хук, что у людей.
@@ -1806,12 +2022,18 @@ for h in $HOOKS; do
   OUT=$(cd "$TMP" && echo '{}' | python3 "$TMP/hooks/$h.py" 2>&1); RC=$?
   echo "$OUT" | grep -q "не отработал" || MUTE=$((MUTE+1))
   [ "$RC" -eq 0 ] || MUTE=$((MUTE+1))
+  # Команда для ручного прогона обязана быть готовой к копированию: свой интерпретатор
+  # и свой путь. `python3 <папка плагина>/…` заставляло искать папку самому, а `python3`
+  # на машине с двумя Python мог и не воспроизвести поломку.
+  echo "$OUT" | grep -qF "$SELF $TMP/hooks/$h.py" || NOCMD=$((NOCMD+1))
   # исправный хук на исправном проекте про поломку молчать обязан
   OUT2=$(cd "$TMP" && echo '{}' | python3 ../../hooks/$h.py 2>&1)
   echo "$OUT2" | grep -q "не отработал" && NOISY=$((NOISY+1))
 done
 if [ "$MUTE" -eq 0 ]; then ok "все хуки папки ($HOOKS_N) называют свою поломку вслух и не роняют сессию"
 else bad "$MUTE проверок провалено: хук глушит свою поломку либо роняет старт"; fi
+if [ "$NOCMD" -eq 0 ]; then ok "поломка: команда ручного прогона готова к копированию (свой Python, свой путь)"
+else bad "$NOCMD хук(ов) дают команду с заглушкой вместо пути или интерпретатора"; fi
 if [ "$NOISY" -eq 0 ]; then ok "исправный хук о поломке не заявляет (ложного шума нет)"
 else bad "$NOISY хуков кричат о поломке на исправной работе — ложный красный"; fi
 rm -rf "$TMP"

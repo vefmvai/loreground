@@ -20,6 +20,12 @@ import subprocess
 import sys
 import time
 
+# Помощники комплекта, дом у каждого один: печать строки в контекст и ответ на свою
+# поломку. Лежат рядом со скриптом, поэтому путь к ним — от собственного файла.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _out import сказать  # noqa: E402
+from _broken import сломался  # noqa: E402
+
 MARKER = ".loreground"
 CONFIG = "config.yaml"
 WRITERS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
@@ -29,12 +35,7 @@ SLOW = 5.0
 
 
 def emit(message):
-    json.dump(
-        {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": message}},
-        sys.stdout,
-        ensure_ascii=False,
-    )
-    sys.stdout.write("\n")
+    сказать("PostToolUse", message)
     sys.exit(0)
 
 
@@ -85,8 +86,12 @@ def main():
     except ImportError:
         # Отдельно от разбора: без PyYAML прогон не состоится НИКОГДА, а стартовый хук
         # говорит про паспорт и о мёртвой проверке записи не сообщает.
+        # Интерпретатор называется свой — см. тот же довод в startup-load.py: `pip` без
+        # уточнения кладёт библиотеку в тот Python, который первым отзовётся, а хук зовут
+        # строкой `python3` из hooks.json, и это бывает другой.
         emit(HEAD + ": PyYAML не установлен — комплектацию прогона прочитать нечем. "
-             "Проверка после записи НЕ выполнена, и это не «чисто». Установить: pip install pyyaml")
+             "Проверка после записи НЕ выполнена, и это не «чисто». Установить именно в этот "
+             "интерпретатор: " + sys.executable + " -m pip install pyyaml")
 
     try:
         with open(config_path, encoding="utf-8") as handle:
@@ -132,9 +137,23 @@ def main():
     if any(os.path.isdir(d) for d in named) and not any(under(d, path) for d in dirs):
         return
 
+    # Кодировка названа явно с ОБЕИХ сторон, а не взята у системы. Прежнее `text=True`
+    # расшифровывало ответ прогона по локали: на русской Windows это cp1251, а валидатор
+    # печатает UTF-8 со значками — расшифровка падала внутри чтения, `subprocess` при этом
+    # не падал и отдавал пустой stdout. Отчёт пропадал ЦЕЛИКОМ, а шапка «найдены проблемы»
+    # оставалась: агенту говорили «чини сейчас», не сказав что. Это тот же класс подмены,
+    # против которого заведён код 2, только исход выглядит содержательным.
+    #
+    # Дочернему процессу кодировка вывода назначается тем же заходом. Без этого он берёт её
+    # у той же локали, и одностороннее «читать как UTF-8» превратило бы кириллицу отчёта
+    # в мусор на каждой русской Windows — починка одного входа ценой нового.
+    # `errors="replace"` — последний рубеж: команду прогона пишет пользователь, чужой скрипт
+    # отдаёт что угодно, и испорченный знак в отчёте дешевле потерянного отчёта.
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
     started = time.time()
     try:
-        run = subprocess.run(argv, cwd=project, capture_output=True, text=True, timeout=120)
+        run = subprocess.run(argv, cwd=project, capture_output=True, timeout=120,
+                             encoding="utf-8", errors="replace", env=env)
     except FileNotFoundError:
         emit(HEAD + ": команда «" + argv[0] + "» не найдена. Прогон не состоялся — это не «чисто».")
     except subprocess.TimeoutExpired:
@@ -178,10 +197,6 @@ def main():
 
 
 
-
-# Ответ на собственную поломку — общий для всех хуков, дом один: _broken.py.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _broken import сломался  # noqa: E402
 
 if __name__ == "__main__":
     try:
