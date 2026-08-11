@@ -128,6 +128,105 @@ if echo "$OUT" | grep -q "знание (type: добавка) без sources"; t
   bad "необъявленный доменный тип не должен давать ОШИБКУ (стандарт покрывает модуль знаний)"
 else ok "14 необъявленный тип не ошибка, а предупреждение"; fi
 
+echo "── Ни один ключ шаблона конфига не остаётся без читателя ──"
+# Класс, а не адрес. Ключ, который человек честно заполняет, а код не читает, — это
+# видимость сделанной работы: артефакт заполненного конфига неотличим от артефакта
+# незаполненного, и обнаруживается это только тем, что «почему-то не действует».
+# Так жили `knowledge_types` и `trust_layer`: оба записаны в шаблоне, оба не читались
+# никем, а текст стандарта при этом называл конфиг ДОМОМ этих решений.
+#
+# Ключи берутся из самих шаблонов навыка, а не из списка по памяти: список не растёт
+# вместе с шаблоном, и следующий такой ключ прошёл бы молча.
+CFG_HUMAN="why"   # поля дисциплины: их читает человек, и это объявлено в § 6.3
+OUT=$(python3 - "$CFG_HUMAN" <<'PY2'
+import re, glob, sys
+человеческие = set(sys.argv[1].split())
+текст = open("../../skills/init/SKILL.md", encoding="utf-8").read()
+ключи = set()
+for блок in re.findall(r"```yaml\n(.*?)```", текст, re.S):
+    for строка in блок.split("\n"):
+        m = re.match(r"^\s*#?\s*([а-яa-z_][\w-]*)\s*:", строка)
+        if m:
+            ключи.add(m.group(1))
+код = "".join(open(f, encoding="utf-8").read()
+              for f in glob.glob("../../hooks/*.py") + glob.glob("../*.py"))
+print("CFG_KEYS", len(ключи))
+for к in sorted(ключи):
+    if к in человеческие:
+        continue
+    if not re.search(r"[\"']" + re.escape(к) + r"[\"']", код):
+        print("БЕЗ ЧИТАТЕЛЯ", к)
+PY2
+)
+CFG_KEYS=$(echo "$OUT" | sed -n 's/^CFG_KEYS //p')
+CFG_ORPHANS=$(echo "$OUT" | grep -c "^БЕЗ ЧИТАТЕЛЯ" || true)
+if [ "${CFG_KEYS:-0}" -ge 8 ]; then ok "ключи конфига взяты из шаблона навыка ($CFG_KEYS штук), а не из списка по памяти"; else
+  bad "ключей найдено ${CFG_KEYS:-0} — перебор выродился, и его зелёный ничего не значит"; fi
+if [ "$CFG_ORPHANS" -eq 0 ]; then ok "у каждого ключа конфига есть читатель в коде (кроме объявленных человеческих)"; else
+  bad "$CFG_ORPHANS ключ(ей) конфига не читает никто: $(echo "$OUT" | sed -n 's/^БЕЗ ЧИТАТЕЛЯ //p' | tr '\n' ' ')"; fi
+# Полнота: подсаженный ключ-сирота обязан быть пойман. Проверяется на копии шаблона,
+# исходный файл не трогаем.
+CFG_SEED=$(mktemp -d); mkdir -p "$CFG_SEED/skills/init" "$CFG_SEED/hooks" "$CFG_SEED/standard/tests"
+cp ../../skills/init/SKILL.md "$CFG_SEED/skills/init/"
+cp ../../hooks/*.py "$CFG_SEED/hooks/"; cp ../*.py "$CFG_SEED/standard/"
+python3 - "$CFG_SEED" <<'PY3'
+import sys, re
+п = sys.argv[1] + "/skills/init/SKILL.md"
+т = open(п, encoding="utf-8").read()
+т = т.replace("  trust_layer:", "  выдуманный_ключ: да\n  trust_layer:", 1)
+open(п, "w", encoding="utf-8").write(т)
+PY3
+CFG_SEED_HIT=$(cd "$CFG_SEED/standard/tests" && python3 - <<'PY4'
+import re, glob
+текст = open("../../skills/init/SKILL.md", encoding="utf-8").read()
+ключи = set()
+for блок in re.findall(r"```yaml\n(.*?)```", текст, re.S):
+    for строка in блок.split("\n"):
+        m = re.match(r"^\s*#?\s*([а-яa-z_][\w-]*)\s*:", строка)
+        if m: ключи.add(m.group(1))
+код = "".join(open(f, encoding="utf-8").read()
+              for f in glob.glob("../../hooks/*.py") + glob.glob("../*.py"))
+print(sum(1 for к in ключи if к not in {"why"} and not re.search(r"[\"']" + re.escape(к) + r"[\"']", код)))
+PY4
+)
+if [ "$CFG_SEED_HIT" -eq 1 ]; then ok "подсаженный ключ-сирота пойман — перебор ловит признак"; else
+  bad "подсаженный ключ-сирота НЕ пойман (нашлось $CFG_SEED_HIT): проверка ничего не доказывает"; fi
+rm -rf "$CFG_SEED"
+
+echo "── Объявление доменных типов живёт в config.yaml и действительно читается ──"
+# § 9.1 говорит прямо: «у объявления есть дом, и это не командная строка». Довод верный —
+# решение живёт вечно, а команда меняется. Но пока ключ `knowledge_types` не читал никто,
+# настоящим домом оставались флаги в команде: человек, честно заполнивший ключ и не
+# тронувший команду, получал РОВНО НИЧЕГО — слой доверия молчал, предупреждение 14 горело,
+# а работа выглядела сделанной. Проверяются обе стороны: объявление включает слой доверия,
+# его отсутствие — не включает.
+TCFG=$(mktemp -d); mkdir -p "$TCFG/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\n---\n- [[Пре]]\n' > "$TCFG/knowledge/00-index.md"
+printf -- '---\ntitle: Пре\ntype: препарат\nschema_version: "1.0"\n---\nТекст.\n' > "$TCFG/knowledge/Пре.md"
+VABS2="$(cd "$(dirname "$V")" && pwd)/$(basename "$V")"
+OUT=$(cd "$TCFG" && python3 "$VABS2" knowledge 2>&1); RC=$?
+has "конфига нет: тип остаётся вне слоя доверия" "ДОМЕННЫЙ ТИП ВНЕ СЛОЯ ДОВЕРИЯ"
+if [ "$RC" -eq 0 ]; then ok "конфига нет: необъявленный тип — предупреждение, не ошибка"; else
+  bad "конфига нет: код $RC, необъявленный тип стал ошибкой"; fi
+
+printf 'validate:\n  knowledge_types: [препарат]\n' > "$TCFG/config.yaml"
+OUT=$(cd "$TCFG" && python3 "$VABS2" knowledge 2>&1); RC=$?
+has "объявление из конфига подхвачено" "Доменные типы объявлены знанием"
+has "названо, откуда взято объявление" "config.yaml: препарат"
+if [ "$RC" -eq 1 ]; then ok "объявление ВКЛЮЧАЕТ слой доверия: знание без sources стало ошибкой"; else
+  bad "объявление из конфига не сработало: код $RC — ключ прочитан, а проверки не включились"; fi
+if echo "$OUT" | grep -qF "ДОМЕННЫЙ ТИП ВНЕ СЛОЯ ДОВЕРИЯ"; then
+  bad "объявленный тип продолжает числиться необъявленным"; else
+  ok "объявленный тип ушёл из предупреждения 14"; fi
+
+# Битый конфиг не должен молчать: непрочитанный конфиг = необъявленные типы = выключенный
+# слой доверия, и выглядит это как обычный прогон.
+printf 'validate:\n  knowledge_types: [препарат\n' > "$TCFG/config.yaml"
+OUT=$(cd "$TCFG" && python3 "$VABS2" knowledge 2>&1)
+has "битый конфиг назван, а не проглочен" "не прочитан"
+has "битый конфиг: сказано, что слой доверия не действует" "НЕ объявлены"
+rm -rf "$TCFG"
+
 echo "── Домен объявил свой тип знанием (--knowledge-type) ──"
 # Вторая половина класса: объявил — значит слой доверия действует полностью.
 OUT=$(python3 "$V" fixtures/broken/knowledge --knowledge-type "добавка" 2>&1); RC=$?
