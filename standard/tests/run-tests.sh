@@ -1002,65 +1002,54 @@ printf 'validate:\n  command: ./эхо.sh knowledge\n' > "$TEN/config.yaml"
 OUT=$(vwe cp1251)
 has "кодировка: прогону назначена кодировка вывода, а не взята у локали" "кодировка вывода прогона: utf-8"
 
-# 6. Перебор ВСЕГО продукта, а не только хуков. Первая редакция этой правки чинила код и
-# оставляла класс открытым в соседних файлах: скоуп проверки был `hooks/` и `standard/*.py`,
-# а `.md` в него не входил вовсе — и навык сборки продолжал читать манифест без кодировки,
-# на русской Windows молча теряя версию агента. Машина, слепая к половине продукта, зелена
-# при незакрытом классе; это ровно то, ради чего перебор делается по классу, а не по адресам.
-enc_sweep() {   # $1 — корень для перебора; печатает найденные места, по одному на строку
-  python3 - "$1" <<'PY'
-import os, re, sys
-корень = sys.argv[1]
-ПРИЗНАКИ = [(r"text\s*=\s*True|universal_newlines\s*=\s*True", "кодировка от локали (text=True)"),
-            (r"\bopen\s*\(", "open() без encoding="),
-            (r"subprocess\.(run|Popen|check_output|check_call|call)\s*\(", "запуск процесса без encoding=")]
-for папка, подпапки, файлы in os.walk(корень):
-    подпапки[:] = [d for d in подпапки if d not in ("__pycache__", ".git", "fixtures")]
-    for имя in sorted(файлы):
-        if not имя.endswith((".py", ".sh", ".md")):
-            continue
-        путь = os.path.join(папка, имя)
-        текст = open(путь, encoding="utf-8").read()
-        for правило, что in ПРИЗНАКИ:
-            for m in re.finditer(правило, текст):
-                начало = текст.rfind("\n", 0, m.start()) + 1
-                до = текст[начало:m.start()]
-                # Разговор о коде — не код: строка-комментарий и текст в одиночных
-                # бэктиках описывают идиом, а не исполняют его. Без этого различения
-                # проверка краснела бы на объяснении, почему так делать нельзя.
-                if "#" in до or до.count("`") % 2:
-                    continue
-                хвост = текст[m.start():m.start() + 400]
-                if "encoding=" in хвост:
-                    continue
-                if что.startswith("open") and re.search(r"['\"][rwax]?b[+]?['\"]", хвост[:220]):
-                    continue          # двоичное чтение кодировки не имеет
-                print(f"{os.path.relpath(путь, корень)}:{текст[:m.start()].count(chr(10)) + 1}  {что}")
-PY
-}
-ENC_HITS=$(enc_sweep "$KIT" | grep -c . || true)
+# 6. Перебор ВСЕГО комплекта на кодировку, взятую у локали. Смотреть только хуки мало:
+# класс уже жил в навыке сборки (чтение манифеста без кодировки — молчаливая потеря версии
+# агента) и в этом самом файле. Дом перебора один — `enc-sweep.py` рядом; там же сказано,
+# что доказывает его пустой вывод, а что нет.
+ENC_HITS=$(python3 enc-sweep.py "$KIT" | grep -c . || true)
 if [ "$ENC_HITS" -eq 0 ]; then ok "кодировка: во всём комплекте нет мест, где её берут у системы"
-else bad "кодировка: $ENC_HITS мест(а) в комплекте берут кодировку у системы — $(enc_sweep "$KIT" | tr '\n' '; ')"; fi
-# Полнота перебора доказывается экземпляром, которого в комплекте нет: если подсадить
-# каждый признак, команда обязана поймать все. Иначе «ничего не найдено» значит «плохо
-# искали», и зелёный тут — самая дорогая форма лжи.
-ENCSEED="$TEN/подсадка"; mkdir -p "$ENCSEED"
-# Сами формы собираются подстановкой, а не пишутся сюда буквально: этот файл входит в
-# перебор наравне с остальными, и подсадка, записанная в нём как есть, красила бы проверку
-# собственным текстом. Ловушка сработала при первом же прогоне — оставлена здесь записью.
-SEED_O=open; SEED_R=run; SEED_T=text
-printf 'import subprocess\nsubprocess.%s(["ls"], %s=True)\n' "$SEED_R" "$SEED_T" > "$ENCSEED/один.py"
-printf 'x = %s("файл.md").read()\n' "$SEED_O" > "$ENCSEED/два.py"
-printf 'import subprocess\nsubprocess.%s(["ls"], capture_output=True)\n' "$SEED_R" > "$ENCSEED/три.py"
-printf '```bash\npython3 -c "import json; json.load(%s(\x27м.json\x27))"\n```\n' "$SEED_O" > "$ENCSEED/четыре.md"
-# Считаются ФАЙЛЫ, а не срабатывания: в одном подсаженном файле признаков бывает два
-# (`text=True` и запуск без кодировки — это про один и тот же вызов), и счёт срабатываний
-# мерил бы не то, что проверяется, — «поймана ли каждая из четырёх форм».
-ENC_CAUGHT=$(enc_sweep "$ENCSEED" | cut -d: -f1 | sort -u | grep -c . || true)
-if [ "$ENC_CAUGHT" -eq 4 ]; then ok "кодировка: перебор ловит все четыре подсаженные формы (признак, а не знакомое написание)"
-else bad "кодировка: из четырёх подсаженных форм перебор поймал $ENC_CAUGHT — команда неполна, и её зелёный ничего не значит"; fi
-rm -rf "$ENCSEED"
+else bad "кодировка: $ENC_HITS мест(а) в комплекте берут кодировку у системы — $(python3 enc-sweep.py "$KIT" | tr '\n' '; ')"; fi
 
+# Самопроверка перебора идёт В ОБЕ СТОРОНЫ, и это не педантизм. Проверка, которая только
+# ловит, чинится ослеплением: достаточно расширить любое послабление, и она останется
+# зелёной, перестав что-либо значить. Проверка, которая только молчит, чинится наоборот.
+# Поэтому рядом с приманками лежат ЧЕСТНЫЕ файлы, и красный на них — такой же провал:
+# страж, шумящий на исправном коде и на собственной документации, будет выключен человеком,
+# и правильно сделает.
+#
+# Приманки собираются подстановкой: этот файл входит в перебор наравне с остальными, и
+# форма, записанная тут буквально, красила бы проверку собственным текстом.
+ENCSEED="$TEN/подсадка"; rm -rf "$ENCSEED"; mkdir -p "$ENCSEED/fixtures"
+S_O=open; S_R=run; S_P=popen; S_RT=read_text; S_CP=ConfigParser; S_GO=getoutput
+# ── приманки: каждая обязана быть поймана ──
+printf 'import subprocess as sp\nsp.check_output(["ls"], capture_output=True)\n'   > "$ENCSEED/п01.py"
+printf 'from subprocess import %s\n%s(["ls"], capture_output=True)\n' "$S_R" "$S_R" > "$ENCSEED/п02.py"
+printf 'from os import %s\n%s("ls").read()\n' "$S_P" "$S_P"                        > "$ENCSEED/п03.py"
+printf 'from configparser import %s\n%s().read("н.ini")\n' "$S_CP" "$S_CP"         > "$ENCSEED/п04.py"
+printf 'р = "#"; д = %s("з.md").read()\n' "$S_O"                                   > "$ENCSEED/п05.py"
+printf 'м = %s("p.json").read()\nwith %s("c.yaml", encoding="utf-8") as h:\n    pass\n' "$S_O" "$S_O" > "$ENCSEED/п06.py"
+printf 'from pathlib import Path\nт = Path("з.md").%s()  # encoding= не указан\n' "$S_RT" > "$ENCSEED/п07.py"
+printf '```bash\ngrep "#" з.md && python3 -c "print(%s(\x27з.md\x27).read())"\n```\n' "$S_O" > "$ENCSEED/п08.md"
+printf '#!/usr/bin/env bash\nВ=$(python3 -c "import json;print(json.load(%s(\x27p.json\x27))[\x27v\x27])")\n' "$S_O" > "$ENCSEED/п09"
+printf 'import subprocess\nsubprocess.%s("ls")\n' "$S_GO"                          > "$ENCSEED/п10.py"
+printf 'x = %s("а.md").read()\n' "$S_O"                                            > "$ENCSEED/fixtures/п11.py"
+# ── честные: каждый обязан промолчать ──
+printf 'import webbrowser\nwebbrowser.%s("https://пример")\n' "$S_O"               > "$ENCSEED/ч1.py"
+printf 'import os\nos.%s("з", os.O_CREAT)\n' "$S_O"                                > "$ENCSEED/ч2.py"
+printf 'import zipfile\nzipfile.ZipFile("a.zip").%s("и").read()\n' "$S_O"          > "$ENCSEED/ч3.py"
+printf 'import subprocess\nsubprocess.%s(["ls"], check=True)\n' "$S_R"             > "$ENCSEED/ч4.py"
+printf 'import configparser\nc = configparser.%s()\nc.read_string("[a]\\nb=1")\n' "$S_CP" > "$ENCSEED/ч5.py"
+printf 'Читать файл вызовом %s() без явной кодировки нельзя — она придёт от машины.\n' "$S_O" > "$ENCSEED/ч6.md"
+printf '| Вызов | Беда |\n|---|---|\n| subprocess.%s(cmd) | берёт кодировку у локали |\n' "$S_R" > "$ENCSEED/ч7.md"
+printf 'x = %s("а.md", "rb").read().decode("utf-8")\n' "$S_O"                      > "$ENCSEED/ч8.py"
+printf 'x = %s("а.md", encoding="utf-8").read()\n' "$S_O"                          > "$ENCSEED/ч9.py"
+ENC_CAUGHT=$(python3 enc-sweep.py "$ENCSEED" | grep -c '^п\|^fixtures/п' || true)
+ENC_FALSE=$(python3 enc-sweep.py "$ENCSEED" | grep -c '^ч' || true)
+if [ "$ENC_CAUGHT" -eq 11 ]; then ok "кодировка: перебор ловит все 11 приманок, включая псевдоним импорта и соседний верный вызов"
+else bad "кодировка: из 11 приманок перебор поймал $ENC_CAUGHT — его зелёный ничего не значит"; fi
+if [ "$ENC_FALSE" -eq 0 ]; then ok "кодировка: на 9 честных файлах перебор молчит (в том числе на прозе о коде)"
+else bad "кодировка: $ENC_FALSE ложных срабатываний на честном коде — такого стража выключат"; fi
+rm -rf "$ENCSEED"
 # 7. Последний рубеж: команду прогона пишет пользователь, и чужой скрипт отдаёт что
 # угодно. Нерасшифруемый байт обязан испортить знак, а не съесть отчёт целиком.
 printf '#!/usr/bin/env bash\nprintf "РАЗБОР: \\377\\376 и дальше текст\\n"\nexit 1\n' > "$TEN/кривой.sh"
