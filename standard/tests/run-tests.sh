@@ -93,6 +93,22 @@ has "3  сирота — имя"          "Заброшенная заметка
 # ссылками, и печатать сироту вторично значит утверждать про неё неправду.
 if [ "$(echo "$OUT" | sed -n '/НЕДОСТИЖИМЫЕ ОТ ИНДЕКСА/,/^$/p' | grep -c 'Заброшенная заметка')" -eq 0 ]; then
   ok "3/21 не дублируют сироту"; else bad "сирота попала и в 21 — заголовок 21 про неё лжёт"; fi
+# Сообщение обязано вести к следующему шагу, а не только называть нарушенное правило.
+# Обе строки прежде описывали болезнь и молчали о лекарстве: чинящий знал, что не так,
+# и не знал, чем закрыть, — а рядом с одной из них лежал бесплатный обход (сменить type
+# и остаться без провенанса молча).
+has "4b знание без провенанса ведёт к карантину, а не в тупик" "status: draft"
+# Заметка вовсе без frontmatter в ломаной фикстуре не лежит — этой строке нужен свой стенд.
+TFM=$(mktemp -d); mkdir -p "$TFM/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\n---\n- [[Ч]]\n' > "$TFM/knowledge/00-index.md"
+printf 'черновик без шапки\n' > "$TFM/knowledge/Ч.md"
+OUTFM=$(python3 "$V" "$TFM/knowledge" 2>&1)
+if echo "$OUTFM" | grep -qF "templates/knowledge.md"; then ok "4a отсутствие frontmatter называет образец"; else
+  bad "4a отсутствие frontmatter: сказано, что не так, и не сказано, чем закрыть"; fi
+if echo "$OUTFM" | grep -qF "§ 3.1"; then ok "4a названы обязательные поля"; else
+  bad "4a отсутствие frontmatter: обязательные поля не названы адресом"; fi
+rm -rf "$TFM"
+has "4b карантин назван адресом в стандарте" "§ 10.2"
 has "4a YAML-ошибка"           "YAML-ошибка"
 has "4b знание без провенанса" "без sources"
 # Ассерции по ИМЕНИ заметки, а не по заголовку секции: иначе один класс
@@ -183,7 +199,7 @@ OUT=$(python3 "$V" "$TMP" 2>&1); RC=$?
 if echo "$OUT" | grep -q "НЕТ HOME-ИНДЕКСА"; then bad "15 ложно срабатывает на 00-Index.md (регистр)"; else ok "15 не зависит от регистра имени"; fi
 rm -rf "$TMP"
 # Охрана: без базы (только --core) проверка 15 обязана молчать.
-OUT=$(python3 "$V" /nonexistent-base-dir --core ../core.md 2>&1)
+OUT=$(python3 "$V" --core ../core.md 2>&1)
 if echo "$OUT" | grep -q "НЕТ HOME-ИНДЕКСА"; then bad "15 сработала там, где базы нет вовсе"; else ok "15 молчит, когда база не задана"; fi
 # Индекс в служебной папке точкой входа не считается.
 TMP=$(mktemp -d); mkdir -p "$TMP/_templates"
@@ -259,6 +275,46 @@ OUT=$(python3 "$V" "$TMP" --no-trust-layer 2>&1)
 has "флаг объявляет себя в шапке" "СЛОЙ ДОВЕРИЯ НЕ ПРОВЕРЯЛСЯ"
 has "флаг объявляет себя в вердикте" "НО слой доверия в этом прогоне не проверялся"
 rm -rf "$TMP"
+
+echo "── --core на папке без документов ядра: прогон не состоялся, а не «ядро чисто» ──"
+# Флаг задан, путь существует, документов ядра там нет. Прежде прогон шёл так, будто флага
+# не было: проверки 6, 7, 8, 10 не выполнялись, отчёт получался тем же, и единственной
+# приметой оставался отсутствующий кусок шапки — а заметить, что чего-то НЕТ, нельзя.
+TCORE=$(mktemp -d); mkdir -p "$TCORE/knowledge" "$TCORE/пусто"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\n---\n- [[П]]\n' > "$TCORE/knowledge/00-index.md"
+printf -- '---\ntitle: П\ntype: concept\nschema_version: "1.0"\n---\nx\n' > "$TCORE/knowledge/П.md"
+cp ../validate.py "$TCORE/пусто/"      # не .md: для ядра это пустая папка
+OUT=$(python3 "$V" "$TCORE/knowledge" --core "$TCORE/пусто" 2>&1); RC=$?
+if [ "$RC" -eq 2 ]; then ok "--core без документов ядра: код 2"; else
+  bad "--core без документов ядра: код $RC — невыполненные проверки прошли как выполненные"; fi
+has "--core без документов: названы непройденные проверки" "6, 7, 8, 10"
+has "--core без документов: сказано, что это не «ядро чистое»" "не «ядро чистое»"
+if echo "$OUT" | grep -q "🟢"; then bad "--core без документов: зелёный вердикт при невыполненных проверках"; else
+  ok "--core без документов: зелёного вердикта нет"; fi
+# Обратная сторона: с настоящим ядром прогон обязан идти как прежде. Иначе починка
+# ложного зелёного куплена ложным красным, и флаг станет невозможно использовать.
+cp ../core.md "$TCORE/пусто/"
+python3 "$V" "$TCORE/knowledge" --core "$TCORE/пусто" >/dev/null 2>&1; RC=$?
+if [ "$RC" -eq 0 ]; then ok "--core с настоящим ядром: прогон идёт, код 0"; else
+  bad "--core с настоящим ядром: код $RC — сломан обычный путь"; fi
+# Та же беда с другой стороны: НАЗВАННАЯ папка базы, которой нет на диске. Прежде она
+# прощалась, если задан --core: прогон шёл по одному ядру и печатал «📊 База: 0 заметок»,
+# а следом «🟢 Ошибок нет». Опечатка в имени папки давала зелёный экран при нуле
+# проверенных заметок — приметой был только ноль в шапке, а ноль не бросается в глаза.
+OUT=$(python3 "$V" "$TCORE/kknowledge" --core "$TCORE/пусто" 2>&1); RC=$?
+if [ "$RC" -eq 2 ]; then ok "опечатка в имени папки базы: код 2, а не зелёный"; else
+  bad "опечатка в имени папки базы: код $RC — ноль проверенных заметок прошёл как «чисто»"; fi
+has "опечатка в имени базы: сказано, что это не «чисто»" "не «в базе всё чисто»"
+if echo "$OUT" | grep -q "🟢"; then bad "опечатка в имени базы: зелёный вердикт при нуле заметок"; else
+  ok "опечатка в имени базы: зелёного вердикта нет"; fi
+# А вот НЕназванная база при названном ядре — законный прогон «проверь одно ядро».
+# Он обязан идти, но обязан и сказать о себе: отчёт без этой строки отличается от полного
+# только отсутствием раздела про базу, а отсутствие никто не замечает.
+OUT=$(python3 "$V" --core "$TCORE/пусто" 2>&1); RC=$?   # запуск из tests/: папки knowledge тут нет
+if [ "$RC" -eq 0 ]; then ok "прогон только по ядру: остаётся законным"; else
+  bad "прогон только по ядру: код $RC — сломан законный способ проверить одно ядро"; fi
+has "прогон только по ядру: объявляет себя неполным" "ТОЛЬКО документы ядра"
+rm -rf "$TCORE"
 
 echo "── Гейт PyYAML: без библиотеки прогон не начинается ──"
 # Класс «ложный зелёный»: без PyYAML часть проверок молча не выполнялась, и база
@@ -359,12 +415,12 @@ echo "── Проверка 7: не зашита на русский и не �
 VABS="$(pwd)/../validate.py"
 TMP=$(mktemp -d)
 printf -- '# Core\n\nClaim [confirmed — `docs/absent.md`] here.\n' > "$TMP/core-en.md"
-OUT=$(python3 "$V" /nonexistent-base-dir --core "$TMP/core-en.md" 2>&1); RC=$?
+OUT=$(python3 "$V" --core "$TMP/core-en.md" 2>&1); RC=$?
 has "английский маркер статуса виден" "docs/absent.md"
 if [ "$RC" -eq 1 ]; then ok "англоязычная база не зеленеет молча"; else bad "exit $RC — проверка 7 промолчала"; fi
 # cwd больше не спасает: рядом с местом запуска путь есть, рядом с файлом — нет
 CWDT=$(mktemp -d); mkdir -p "$CWDT/docs"; : > "$CWDT/docs/absent.md"
-OUT=$(cd "$CWDT" && python3 "$VABS" /nonexistent-base-dir --core "$TMP/core-en.md" 2>&1)
+OUT=$(cd "$CWDT" && python3 "$VABS" --core "$TMP/core-en.md" 2>&1)
 has "запуск из чужого каталога не резолвит путь" "docs/absent.md"
 rm -rf "$CWDT" "$TMP"
 
@@ -459,22 +515,22 @@ printf -- 'Утверждение [подтверждено — docs/absent.md] 
 # и обратная сторона: голый текст в скобках — не путь. DOI, «A/B-тест», «50/50»
 # содержат «/», но файлами не являются: ошибка на них = враньё про исправный текст.
 printf -- 'Раз [подтверждено — https://doi.org/10.1000/xyz123].\nДва [подтверждено — см. A/B-тест в теле].\nТри [подтверждено — 50/50 по опросу].\n' > "$TMP/prose.md"
-OUT=$(python3 "$V" /nonexistent-base-dir --core "$TMP/prose.md" 2>&1); RCP=$?
+OUT=$(python3 "$V" --core "$TMP/prose.md" 2>&1); RCP=$?
 if echo "$OUT" | grep -q "ССЫЛКИ СТАТУСОВ"; then bad "ложная ошибка на DOI/URL или тексте со слешем"; else ok "DOI, A/B-тест и 50/50 не считаются путями"; fi
 # URL, КОНЧАЮЩИЙСЯ на .md — единственная форма, которую фильтр `.md` пропускает,
 # и ради которой написан отсев схемы.
 printf -- 'Ссылка [подтверждено — https://raw.githubusercontent.com/a/b/README.md].\n' > "$TMP/urlmd.md"
-OUT=$(python3 "$V" /nonexistent-base-dir --core "$TMP/urlmd.md" 2>&1); RCU=$?
+OUT=$(python3 "$V" --core "$TMP/urlmd.md" 2>&1); RCU=$?
 if echo "$OUT" | grep -q "ССЫЛКИ СТАТУСОВ"; then bad "URL на .md принят за путь к файлу"; else ok "URL на .md не считается путём"; fi
 if [ "$RCU" -eq 0 ]; then ok "статус со ссылкой на веб зеленеет"; else bad "exit $RCU"; fi
 if [ "$RCP" -eq 0 ]; then ok "честная проза со слешами зеленеет"; else bad "exit $RCP на исправном тексте"; fi
-OUT=$(python3 "$V" /nonexistent-base-dir --core "$TMP/doc.md" 2>&1); RC=$?
+OUT=$(python3 "$V" --core "$TMP/doc.md" 2>&1); RC=$?
 has "статус без бэктиков проверяется" "docs/absent.md"
 if [ "$RC" -eq 1 ]; then ok "путь без бэктиков роняет прогон"; else bad "exit $RC — статус молча зелёный"; fi
 # существующий путь без бэктиков ложной ошибки не даёт
 mkdir -p "$TMP/docs" && printf 'x\n' > "$TMP/docs/present.md"
 printf -- 'Утверждение [подтверждено — docs/present.md] тут.\n' > "$TMP/doc2.md"
-OUT=$(python3 "$V" /nonexistent-base-dir --core "$TMP/doc2.md" 2>&1); RC=$?
+OUT=$(python3 "$V" --core "$TMP/doc2.md" 2>&1); RC=$?
 if echo "$OUT" | grep -q "ССЫЛКИ СТАТУСОВ"; then bad "ложная ошибка на существующем пути без бэктиков"; else ok "существующий путь без бэктиков — не ошибка"; fi
 if [ "$RC" -eq 0 ]; then ok "существующий путь не роняет прогон"; else bad "exit $RC на исправном статусе"; fi
 rm -rf "$TMP"
@@ -503,23 +559,23 @@ PY
 }
 TMP=$(mktemp -d)
 printf 'Факт [подтверждено — `/*/*/*/*/*/*/*/*/nope.md`].\n' > "$TMP/bomb.md"
-OUT=$(run_limited 15 python3 "$V" /nonexistent-base-dir --core "$TMP/bomb.md"); RC=$?
+OUT=$(run_limited 15 python3 "$V" --core "$TMP/bomb.md"); RC=$?
 if [ "$RC" -eq 99 ]; then bad "глоб в токене вешает прогон"; else ok "глоб в токене не вешает прогон"; fi
 has "глоб-токен объявлен несуществующим" "ССЫЛКИ СТАТУСОВ"
 # оракул: существующий абсолютный путь обязан быть неотличим от выдуманного
 printf 'Факт [подтверждено — `/etc/passwd`].\n' > "$TMP/abs1.md"
 printf 'Факт [подтверждено — `/etc/definitely-not-here-xyz.md`].\n' > "$TMP/abs2.md"
-O1=$(run_limited 15 python3 "$V" /nonexistent-base-dir --core "$TMP/abs1.md" | grep -c "ССЫЛКИ СТАТУСОВ")
-O2=$(run_limited 15 python3 "$V" /nonexistent-base-dir --core "$TMP/abs2.md" | grep -c "ССЫЛКИ СТАТУСОВ")
+O1=$(run_limited 15 python3 "$V" --core "$TMP/abs1.md" | grep -c "ССЫЛКИ СТАТУСОВ")
+O2=$(run_limited 15 python3 "$V" --core "$TMP/abs2.md" | grep -c "ССЫЛКИ СТАТУСОВ")
 if [ "$O1" = "$O2" ]; then ok "абсолютный путь не работает оракулом чужой ФС"; else bad "по выводу видно, есть ли файл на чужой машине"; fi
 printf 'Факт [подтверждено — `../../../../etc/passwd`].\n' > "$TMP/up.md"
-OUT=$(run_limited 15 python3 "$V" /nonexistent-base-dir --core "$TMP/up.md")
+OUT=$(run_limited 15 python3 "$V" --core "$TMP/up.md")
 has "выход вверх (..) не резолвится" "ССЫЛКИ СТАТУСОВ"
 # ОТНОСИТЕЛЬНЫЙ глоб: страж абсолютных путей его не отсекает, значит эта фикстура
 # проверяет именно экранирование. Без неё поломка `glob.escape` прошла бы молча —
 # бомба выше абсолютная, и её ловил другой страж.
 printf -- 'Факт [подтверждено — `*/*/*/*/*/*/*/*/nope.md`].\n' > "$TMP/relbomb.md"
-OUT=$(run_limited 15 python3 "$V" /nonexistent-base-dir --core "$TMP/relbomb.md"); RC=$?
+OUT=$(run_limited 15 python3 "$V" --core "$TMP/relbomb.md"); RC=$?
 if [ "$RC" -eq 99 ]; then bad "относительный глоб вешает прогон (экранирование снято?)"; else ok "относительный глоб экранируется"; fi
 has "относительный глоб-токен объявлен несуществующим" "ССЫЛКИ СТАТУСОВ"
 rm -rf "$TMP"
@@ -784,8 +840,15 @@ rm -rf "$NOY"
 # раньше, чем проверка пустой команды: на первом случае исполнение до этой ветки не
 # доходит, и проверять её надо отдельным входом.
 printf 'validate:\n  trust_layer: true\n' > "$TVW/config.yaml"
-OUT=$(vw Write "$TVW/knowledge/Битая.md")
-if [ -z "$OUT" ]; then ok "валидатор-хук: конфиг без command — команды не придумывает"; else bad "валидатор-хук: придумал команду сам"; fi
+OUT=$(vw Write "$TVW/knowledge/Битая.md" | ctx)
+# Две половины одного требования, и обе обязательны. Команду хук не придумывает (§ 9.3
+# п. 7: у комплектации прогона один дом), но и молчать не вправе: его молчание значит
+# «чисто», и без строки в контексте автопрогон был мёртв, а выглядел работающим.
+has "валидатор-хук: отсутствие команды прогона названо" "нет строки validate.command"
+has "валидатор-хук: сказано, что это не «чисто»" "не «чисто»"
+if echo "$OUT" | grep -qF "FRONTMATTER"; then
+  bad "валидатор-хук: придумал команду сам — прогон состоялся без строки в конфиге"; else
+  ok "валидатор-хук: команды не придумывает, только называет её отсутствие"; fi
 
 rm -f "$TVW/config.yaml"
 OUT=$(vw Write "$TVW/knowledge/Битая.md")
@@ -813,7 +876,10 @@ case "$DOC_CMD" in
 esac
 
 TDC="$(mktemp -d)"; mkdir -p "$TDC/knowledge" "$TDC/standard"
-cp ../validate.py "$TDC/standard/"          # режим «копия»: валидатор лежит у агента
+cp ../validate.py ../core.md "$TDC/standard/"   # режим «копия»: комплект ядра лежит у агента
+# `core.md` здесь не для красоты: комплект «Копия» (§ 9.3) обязан его нести, и без него
+# команде `--core standard` проверять нечего. Стенд с одним `validate.py` изображал бы
+# недособранного агента — то есть проверял бы не тот случай, что у людей.
 printf 'имя: тест\n' > "$TDC/.loreground"
 printf 'validate:\n  command: %s\n' "$DOC_CMD" > "$TDC/config.yaml"
 printf 'черновик\n' > "$TDC/knowledge/Битая.md"   # база заведомо красная: молчать не о чем
@@ -906,7 +972,7 @@ echo "── Хуки при чужой локали: говорят UTF-8 и н
 # «работает на Windows» этим не доказывается: доказывается, что кодировка больше не
 # берётся у системы ни с одной из двух сторон.
 TEN="$(mktemp -d)"; mkdir -p "$TEN/knowledge" "$TEN/standard" "$TEN/hooks"
-cp ../validate.py "$TEN/standard/"
+cp ../validate.py ../core.md "$TEN/standard/"   # комплект «Копия» несёт и стандарт (§ 9.3)
 printf 'имя: тест\n' > "$TEN/.loreground"
 printf 'validate:\n  command: python3 standard/validate.py knowledge --core standard\n' > "$TEN/config.yaml"
 printf 'черновик\n' > "$TEN/knowledge/Битая.md"   # база заведомо красная: молчать не о чем
@@ -1033,6 +1099,8 @@ printf '```bash\ngrep "#" з.md && python3 -c "print(%s(\x27з.md\x27).read())"\
 printf '#!/usr/bin/env bash\nВ=$(python3 -c "import json;print(json.load(%s(\x27p.json\x27))[\x27v\x27])")\n' "$S_O" > "$ENCSEED/п09"
 printf 'import subprocess\nsubprocess.%s("ls")\n' "$S_GO"                          > "$ENCSEED/п10.py"
 printf 'x = %s("а.md").read()\n' "$S_O"                                            > "$ENCSEED/fixtures/п11.py"
+printf 'from pathlib import Path\nд = Path("з.md").%s().read()\n' "$S_O"          > "$ENCSEED/п12.py"
+printf 'from pathlib import Path\nп = Path("з.md")\nд = п.%s().read()\n' "$S_O"   > "$ENCSEED/п13.py"
 # ── честные: каждый обязан промолчать ──
 printf 'import webbrowser\nwebbrowser.%s("https://пример")\n' "$S_O"               > "$ENCSEED/ч1.py"
 printf 'import os\nos.%s("з", os.O_CREAT)\n' "$S_O"                                > "$ENCSEED/ч2.py"
@@ -1043,11 +1111,17 @@ printf 'Читать файл вызовом %s() без явной кодиро
 printf '| Вызов | Беда |\n|---|---|\n| subprocess.%s(cmd) | берёт кодировку у локали |\n' "$S_R" > "$ENCSEED/ч7.md"
 printf 'x = %s("а.md", "rb").read().decode("utf-8")\n' "$S_O"                      > "$ENCSEED/ч8.py"
 printf 'x = %s("а.md", encoding="utf-8").read()\n' "$S_O"                          > "$ENCSEED/ч9.py"
+# Три честных на границе `.open()`: метод с этим именем есть у многого, и кодировке там
+# взяться неоткуда. Красный на любом из них означал бы, что признак цепляется за имя
+# метода, а не за то, чем этот метод является.
+printf 'from pathlib import Path\nimport zipfile\nzipfile.ZipFile("a.zip").%s("и").read()\n' "$S_O" > "$ENCSEED/ч10.py"
+printf 'from pathlib import Path\nPath("з.md").%s("rb").read()\n' "$S_O"          > "$ENCSEED/ч11.py"
+printf 'from pathlib import Path\nPath("з.md").%s(encoding="utf-8").read()\n' "$S_O" > "$ENCSEED/ч12.py"
 ENC_CAUGHT=$(python3 enc-sweep.py "$ENCSEED" | grep -c '^п\|^fixtures/п' || true)
 ENC_FALSE=$(python3 enc-sweep.py "$ENCSEED" | grep -c '^ч' || true)
-if [ "$ENC_CAUGHT" -eq 11 ]; then ok "кодировка: перебор ловит все 11 приманок, включая псевдоним импорта и соседний верный вызов"
-else bad "кодировка: из 11 приманок перебор поймал $ENC_CAUGHT — его зелёный ничего не значит"; fi
-if [ "$ENC_FALSE" -eq 0 ]; then ok "кодировка: на 9 честных файлах перебор молчит (в том числе на прозе о коде)"
+if [ "$ENC_CAUGHT" -eq 13 ]; then ok "кодировка: перебор ловит все 13 приманок, включая псевдоним импорта, соседний верный вызов и путь через переменную"
+else bad "кодировка: из 13 приманок перебор поймал $ENC_CAUGHT — его зелёный ничего не значит"; fi
+if [ "$ENC_FALSE" -eq 0 ]; then ok "кодировка: на 12 честных файлах перебор молчит (в том числе на прозе о коде и на .open() у архива)"
 else bad "кодировка: $ENC_FALSE ложных срабатываний на честном коде — такого стража выключат"; fi
 rm -rf "$ENCSEED"
 # 7. Последний рубеж: команду прогона пишет пользователь, и чужой скрипт отдаёт что
