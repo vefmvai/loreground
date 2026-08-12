@@ -373,6 +373,21 @@ if [ "$RC" -eq 0 ]; then ok "каноническая форма зеленее�
 OUT=$(python3 "$V" "$TMP" --no-trust-layer 2>&1)
 has "флаг объявляет себя в шапке" "СЛОЙ ДОВЕРИЯ НЕ ПРОВЕРЯЛСЯ"
 has "флаг объявляет себя в вердикте" "НО слой доверия в этом прогоне не проверялся"
+
+# 5 на вырожденном входе: confirmed при ПУСТОМ списке источников. Самая частая ошибка
+# новичка — и единственный вход слоя доверия, которого не было ни в одной фикстуре: все
+# они дают хотя бы один источник. Валидатор на нём падал целиком, и человек получал
+# «прогон не состоялся» вместо названного дефекта — то есть шёл чинить установку вместо
+# своей заметки.
+mk_index '- [[Ф]]'
+printf -- '---\ntitle: Ф\ntype: knowledge\nschema_version: "1.0"\nsources: []\nconsensus: confirmed\n---\nx\n' > "$TMP/Ф.md"
+rm -f "$TMP/И1.md" "$TMP/И2.md"
+OUT=$(python3 "$V" "$TMP" 2>&1); RC=$?
+if [ "$RC" -eq 1 ]; then ok "5 confirmed при пустых sources — ошибка, а не падение прогона"
+else bad "exit $RC: confirmed без источников роняет прогон вместо разбора заметки"; fi
+if echo "$OUT" | grep -q "Traceback"; then bad "5 confirmed при пустых sources: валидатор упал трассировкой"
+else ok "5 confirmed при пустых sources: трассировки нет"; fi
+has "5 назван сам дефект, а не поломка прогона" "КОНСЕНСУС"
 rm -rf "$TMP"
 
 echo "── --core на папке без документов ядра: прогон не состоялся, а не «ядро чисто» ──"
@@ -1167,6 +1182,23 @@ printf 'validate:\n  command: ./эхо.sh knowledge\n' > "$TEN/config.yaml"
 OUT=$(vwe cp1251)
 has "кодировка: прогону назначена кодировка вывода, а не взята у локали" "кодировка вывода прогона: utf-8"
 
+# 5б. `~` в команде прогона. Конфиг велит записать туда ТУ ЖЕ команду, которой человек
+# проверяет базу руками (§ 9.3 п. 7), а руками её набирают в оболочке, где домашнюю папку
+# раскрывает она. Хук оболочки не заводит намеренно — значит раскрывать обязан сам.
+# Прежде `~` доезжал до запуска буквой, становился обычной папкой с таким именем, и прогон
+# падал «файла нет»: команда рабочая, а автопрогон мёртв.
+printf 'validate:\n  command: python3 ~/standard/validate.py knowledge\n' > "$TEN/config.yaml"
+printf '{"tool_name":"Write","cwd":"%s","tool_input":{"file_path":"%s"}}' \
+  "$TEN" "$TEN/knowledge/Битая.md" \
+  | (cd "$TEN" && HOME="$TEN" CLAUDE_PROJECT_DIR="$TEN" \
+       python3 "$KIT/hooks/validate-on-write.py") > "$TEN/vw.bin"
+OUT=$(ctxf "$TEN/vw.bin")
+has "тильда: команда с ~ доходит до прогона" "найдены проблемы"
+if echo "$OUT" | grep -qF "НЕ СОСТОЯЛСЯ"; then
+  bad "тильда: ~ не раскрыт — автопрогон мёртв при рабочей команде"; else
+  ok "тильда: прогон состоялся, а не упал на несуществующей папке «~»"; fi
+printf 'validate:\n  command: python3 standard/validate.py knowledge --core standard\n' > "$TEN/config.yaml"
+
 # 6. Перебор ВСЕГО комплекта на кодировку, взятую у локали. Смотреть только хуки мало:
 # класс уже жил в навыке сборки (чтение манифеста без кодировки — молчаливая потеря версии
 # агента) и в этом самом файле. Дом перебора один — `enc-sweep.py` рядом; там же сказано,
@@ -1223,6 +1255,41 @@ else bad "кодировка: из 13 приманок перебор пойма
 if [ "$ENC_FALSE" -eq 0 ]; then ok "кодировка: на 12 честных файлах перебор молчит (в том числе на прозе о коде и на .open() у архива)"
 else bad "кодировка: $ENC_FALSE ложных срабатываний на честном коде — такого стража выключат"; fi
 rm -rf "$ENCSEED"
+
+# 6б. Перебор комплекта на рассогласованный ранний выход: форма возврата переключается
+# флагом, а один из выходов про флаг забыл. Такой вызов не даёт неверного ответа — он
+# роняет ПРОГОН, и человек читает «проверка не выполнена» там, где на деле битая заметка.
+# Дом перебора один — `shape-sweep.py` рядом; там же сказано, что доказывает его пустой
+# вывод, а что нет. Заведён после того, как эта поломка прожила 360 проверок: все фикстуры
+# слоя доверия дают хотя бы один источник, а ранний выход стоит на пустом списке.
+SHAPE_HITS=$(python3 shape-sweep.py "$KIT" | grep -c . || true)
+if [ "$SHAPE_HITS" -eq 0 ]; then ok "форма возврата: в комплекте нет выходов, забывших про флаг формы"
+else bad "форма возврата: $SHAPE_HITS место(а) уронят прогон на распаковке — $(python3 shape-sweep.py "$KIT" | tr '\n' '; ')"; fi
+
+# Самопроверка в обе стороны, по той же причине, что у перебора кодировки выше: ловящая-
+# только проверка чинится ослаблением признака, молчащая-только — его ужесточением.
+# Честные образцы здесь не украшение: переключение формы флагом — законная конструкция,
+# и страж, краснеющий на ней, будет выключен.
+SHSEED="$TEN/подсадка-формы"; rm -rf "$SHSEED"; mkdir -p "$SHSEED"
+# ── приманки: каждая обязана быть поймана ──
+printf 'def f(x, with_groups=False):\n    if not x:\n        return 0\n    return (len(x), x) if with_groups else len(x)\n' > "$SHSEED/п1.py"
+printf 'def f(x, *, подробно=False):\n    if not x:\n        return 0\n    return (1, x) if подробно else 1\n'            > "$SHSEED/п2.py"
+printf 'def f(x, кратко=True):\n    if x is None:\n        return []\n    return x if кратко else (x, len(x))\n'          > "$SHSEED/п3.py"
+printf 'class К:\n    def f(self, x, флаг=False):\n        if not x:\n            return 0\n        return (1, 2) if флаг else 1\n' > "$SHSEED/п4.py"
+# ── честные: каждый обязан промолчать ──
+printf 'def f(x, флаг=False):\n    if not x:\n        return (0, []) if флаг else 0\n    return (len(x), x) if флаг else len(x)\n' > "$SHSEED/ч1.py"
+printf 'def f(x, флаг=False):\n    if not x:\n        return None\n    return (1, x) if флаг else 1\n'                    > "$SHSEED/ч2.py"
+printf 'def f(x, флаг=False):\n    if not x:\n        return 0\n    return len(x) if флаг else len(x) * 2\n'              > "$SHSEED/ч3.py"
+printf 'def f(x, флаг=False):\n    def внутри(y):\n        return len(y)\n    if not x:\n        return (0, []) if флаг else 0\n    return (внутри(x), x) if флаг else внутри(x)\n' > "$SHSEED/ч4.py"
+printf 'def a(x, флаг=False):\n    return (1, x) if флаг else 1\ndef b(x):\n    if not x:\n        return 0\n    return len(x)\n' > "$SHSEED/ч5.py"
+SH_CAUGHT=$(python3 shape-sweep.py "$SHSEED" | grep -c '/п' || true)
+SH_FALSE=$(python3 shape-sweep.py "$SHSEED" | grep -c '/ч' || true)
+if [ "$SH_CAUGHT" -eq 4 ]; then ok "форма возврата: перебор ловит все 4 приманки, включая метод класса и флаг-только-по-имени"
+else bad "форма возврата: из 4 приманок перебор поймал $SH_CAUGHT — его зелёный ничего не значит"; fi
+if [ "$SH_FALSE" -eq 0 ]; then ok "форма возврата: на 5 честных образцах перебор молчит (в том числе на return None и на вложенной функции)"
+else bad "форма возврата: $SH_FALSE ложных срабатываний — такого стража выключат"; fi
+rm -rf "$SHSEED"
+
 # 7. Последний рубеж: команду прогона пишет пользователь, и чужой скрипт отдаёт что
 # угодно. Нерасшифруемый байт обязан испортить знак, а не съесть отчёт целиком.
 printf '#!/usr/bin/env bash\nprintf "РАЗБОР: \\377\\376 и дальше текст\\n"\nexit 1\n' > "$TEN/кривой.sh"
@@ -1405,7 +1472,10 @@ if [ -f "$TIN/knowledge/00-index.md" ]; then ok "сборка: на пустой
 python3 - "$KIT/skills/init/SKILL.md" "$TIN/step8.sh" <<'PY'
 import re, sys
 t = open(sys.argv[1], encoding="utf-8").read()
-b = next(x for x in re.findall(r"```bash\n(.*?)```", t, re.S) if ".loreground" in x)
+# Блок выбирается по тому, что он ЗАПИСЫВАЕТ метку, а не по тому, что упоминает её:
+# упомянуть её вправе любой шаг (разведка первым делом смотрит, собран ли агент), и
+# выбор «первый блок со словом .loreground» уводил тест на чужой шаг при правке соседа.
+b = next(x for x in re.findall(r"```bash\n(.*?)```", t, re.S) if "> .loreground" in x)
 open(sys.argv[2], "w", encoding="utf-8").write(b)
 PY
 printf 'собран_на_версии: 0.1.0\nсобран: 2020-01-01\nимя: старый\n' > "$TIN/.loreground"
