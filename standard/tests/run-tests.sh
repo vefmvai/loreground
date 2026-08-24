@@ -3557,6 +3557,162 @@ case "$OUT" in *"ШАПКА ЕСТЬ, А ЗАМЕТКИ НЕТ"*|*"ШАПКА Б
                  bad "совместимость: проверки 25/26 сработали вне своего режима" ;;
                *) ok "совместимость: 25 и 26 молчат в папочном режиме" ;; esac
 
+echo "── Режим отчёта: взгляд, а не вердикт (§ 10.3) ──"
+TR=$(mktemp -d)
+mkdir -p "$TR/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [индекс]\n---\n\n# Индекс\n\n- [[ist]]\n- [[znanie]]\n- [[domennaya]]\n- [[bitaya]]\n' > "$TR/knowledge/00-index.md"
+printf -- '---\ntitle: ist\ntype: source\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [ист]\nreliability: B\n---\n\n# ist\n\nИсточник.\n' > "$TR/knowledge/ist.md"
+printf -- '---\ntitle: znanie\ntype: knowledge\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [дом]\nsources: ["[[ist]]"]\nconsensus: single\n---\n\n# znanie\n\nЗнание на одном корне.\n' > "$TR/knowledge/znanie.md"
+printf -- '---\ntitle: domennaya\ntype: recept\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [дом]\nconsensus: single\n---\n\n# domennaya\n\nВердикт у типа вне слоя доверия.\n' > "$TR/knowledge/domennaya.md"
+printf -- '---\ntitle: bitaya\ntype: knowledge\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [дом]\nsources: ["[[ist]]"]\nconsensus: single\n---\n\n# bitaya\n\nСсылка в никуда: [[нет-такой-заметки]]\n' > "$TR/knowledge/bitaya.md"
+
+# Обычный прогон этой базы обязан быть красным — иначе следующая проверка ничего не значит.
+OUT=$(cd "$TR" && python3 "$SELF_V" knowledge --domain-type recept 2>&1); RC=$?
+if [ "$RC" -eq 1 ]; then ok "отчёт: контрольный обычный прогон красный, как задумано"
+else bad "отчёт: контрольная база не красная (код $RC) — тест ниже бессмыслен"; fi
+
+OUT=$(cd "$TR" && python3 "$SELF_V" knowledge --domain-type recept --report 2>&1); RC=$?
+if [ "$RC" -eq 0 ]; then ok "отчёт: код 0 — это взгляд, а не вердикт"
+else bad "отчёт: код $RC — режим отчёта присвоил себе роль проверки"; fi
+has "отчёт: сказано, что это не проверка" "Это НЕ проверка"
+has "отчёт: про красный обычный прогон предупредил" "ОБЫЧНЫЙ ПРОГОН ЭТОЙ ЖЕ БАЗЫ — КРАСНЫЙ"
+has "отчёт: назвал, чего не видит"       "ЧЕГО ЭТОТ ОТЧЁТ НЕ ВИДИТ"
+# Знание и заметка вне слоя доверия — РАЗНЫЕ разделы. Смешать их значит написать
+# «столько-то знаний на одном корне» про то, что знанием не объявлено.
+has "отчёт: знание на одном корне"       "ЗНАНИЕ НА ОДНОМ КОРНЕ"
+has "отчёт: вердикт вне слоя доверия"    "ВЕРДИКТ У ЗАМЕТКИ ВНЕ СЛОЯ ДОВЕРИЯ"
+# Ошибки разметки в отчёт не попадают: для них обычный прогон.
+case "$OUT" in *"БИТЫЕ ССЫЛКИ"*) bad "отчёт: смешал ошибки разметки со сводкой" ;;
+               *) ok "отчёт: ошибок разметки не показывает — для них обычный прогон" ;; esac
+
+# Отчёт не зовёт на работу, запрещённую § 7.4: архивную заметку править нельзя.
+printf -- '---\ntitle: staroe\ntype: knowledge\nschema_version: "1.0"\nstatus: archived\ncreated: 2026-08-24\ntags: [дом]\nsources: ["[[ist]]"]\nconsensus: single\n---\n\n# staroe\n\nИсторический снимок.\n' > "$TR/knowledge/staroe.md"
+OUT=$(cd "$TR" && python3 "$SELF_V" knowledge --domain-type recept --report 2>&1)
+case "$OUT" in *"staroe.md"*) bad "отчёт: зовёт править архивную заметку — § 7.4 это запрещает" ;;
+               *) ok "отчёт: архивные заметки в работу не предлагает (§ 7.4)" ;; esac
+rm "$TR/knowledge/staroe.md"
+
+# Прогон НЕ СОСТОЯЛСЯ: отчёт обязан показать настоящую причину, а не пустые разделы.
+OUT=$(cd "$TR" && python3 "$SELF_V" net-takoy-papki --report 2>&1); RC=$?
+if [ "$RC" -eq 2 ]; then ok "отчёт: несостоявшийся прогон остаётся кодом 2"
+else bad "отчёт: код $RC — режим отчёта проглотил несостоявшийся прогон"; fi
+case "$OUT" in *"ОТЧЁТ ПО БАЗЕ"*) bad "отчёт: напечатал пустую сводку вместо причины отказа" ;;
+               *) ok "отчёт: вместо пустой сводки показана настоящая причина" ;; esac
+rm -rf "$TR"
+
+echo "── Проверка 29: отменённая заметка осталась жива (§ 6 п. 9) ──"
+# Мягкий переход — самый частый способ завести второй дом. Проверяются три стороны:
+# старое живо рядом (красное), старое в архиве (зелёное) и — отдельно — что правильная
+# отмена НЕ краснеет по проверке 6: имя поля само и есть пометка архивности.
+TD=$(mktemp -d)
+mkdir -p "$TD/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [индекс]\n---\n\n# Индекс\n\n- [[reglament]]\n- [[reglament-2025]] (архив)\n' > "$TD/knowledge/00-index.md"
+printf -- '---\ntitle: reglament\ntype: knowledge\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [дом]\nsources: []\nsupersedes: ["[[reglament-2025]]"]\n---\n\n# reglament\n\nНовая редакция.\n' > "$TD/knowledge/reglament.md"
+старый() { # status
+  printf -- '---\ntitle: reglament-2025\ntype: knowledge\nschema_version: "1.0"\nstatus: %s\ncreated: 2026-08-24\ntags: [дом]\nsources: []\n---\n\n# reglament-2025\n\nСтарая редакция.\n' "$1" > "$TD/knowledge/reglament-2025.md"
+}
+
+старый stable
+OUT=$(cd "$TD" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1); RC=$?
+if [ "$RC" -eq 1 ]; then ok "29 краснеет: отменённое осталось жить рядом"
+else bad "29 код $RC: мягкий переход прошёл, у факта два дома"; fi
+has "29 назван виноватый файл"  "reglament-2025.md"
+has "29 сказано, что делать"    "Отправь её в архив"
+
+старый archived
+OUT=$(cd "$TD" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1); RC=$?
+if [ "$RC" -eq 0 ]; then ok "29 гаснет после отправки старой в архив"
+else bad "29 после починки код $RC — совет проверки не приводит к цели"; fi
+# Положительный контроль: на зелёном прогоне видно, что проверка СМОТРЕЛА на поле.
+# Без него молчание не отличить от «не посмотрела вовсе» (§ 10.1).
+has "29 положительный контроль есть" "Объявленных отмен (\`supersedes\`): 1"
+# Ключевая регрессия: до исключения в проверке 6 ЛЮБАЯ верная отмена давала красный.
+case "$OUT" in *"АРХИВ КАК ИСТОЧНИК"*) bad "29 верная отмена краснеет по проверке 6 — правило невыполнимо" ;;
+               *) ok "29 поле supersedes не требует пометки архивности (§ 7.4)" ;; esac
+
+# Третья сторона: старую СНЕСЛИ вместо архива. Стандарт отвечает жёстко — ссылка
+# стала битой, и это ловит проверка 2. Отмена сохраняет историю, а не стирает её.
+rm "$TD/knowledge/reglament-2025.md"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [индекс]\n---\n\n# Индекс\n\n- [[reglament]]\n' > "$TD/knowledge/00-index.md"
+OUT=$(cd "$TD" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1); RC=$?
+if [ "$RC" -eq 1 ]; then ok "29 снос вместо архива не проходит молча"
+else bad "29 код $RC: снесённая цель отмены прошла зелёной"; fi
+has "29 снос назван битой ссылкой" "БИТЫЕ ССЫЛКИ"
+# И одна поломка не должна выглядеть двумя: своей строки проверка 29 здесь не печатает.
+case "$OUT" in *"Отменённых заметок нет"*) bad "29 печатает вторую строку про ту же поломку" ;;
+               *) ok "29 не удваивает голос там, где уже сказала проверка 2" ;; esac
+rm -rf "$TD"
+
+echo "── Проверка 28: имя файла по формуле (§ 7.3) ──"
+# Первая машина под «у факта один дом». Проверяются ОБЕ стороны: без формулы прогон
+# обязан молчать по существу и сказать об этом строкой, с формулой — покраснеть на
+# подсаженном втором доме и позеленеть после его сноса.
+TN=$(mktemp -d)
+mkdir -p "$TN/knowledge"
+шапка_имени() { # файл, title, type, subject, тело
+  printf -- '---\ntitle: %s\ntype: %s\nsubject: %s\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [сеть]\n---\n\n# %s\n\n%s\n' \
+    "$2" "$3" "$4" "$2" "$5" > "$1"
+}
+шапка_имени "$TN/knowledge/proxy-port.md" "proxy-port" state "proxy-port" "1080"
+шапка_имени "$TN/knowledge/port-1080.md"  "port-1080"  state "proxy-port" "1080"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [индекс]\n---\n\n# Индекс\n\n- [[proxy-port]]\n- [[port-1080]]\n' > "$TN/knowledge/00-index.md"
+
+# (1) Формулы нет: проверка не выполняется — и НЕ молчит об этом (§ 10.1).
+OUT=$(cd "$TN" && python3 "$SELF_V" knowledge --domain-type state 2>&1); RC=$?
+if [ "$RC" -eq 0 ]; then ok "28 без формулы прогон зелёный — умолчания у формулы нет"
+else bad "28 без формулы код $RC: проверка включилась сама, умолчание просочилось"; fi
+case "$OUT" in *"28 — формулы имени не объявлены"*) ok "28 невыполненная проверка названа вслух" ;;
+               *) bad "28 промолчала о том, что не выполнялась — читается как пройденная" ;; esac
+
+# (2) Формула объявлена: второй дом факта краснеет.
+printf 'validate:\n  naming:\n    state: "{subject}"\n' > "$TN/config.yaml"
+OUT=$(cd "$TN" && python3 "$SELF_V" knowledge --domain-type state 2>&1); RC=$?
+if [ "$RC" -eq 1 ]; then ok "28 краснеет на имени, придуманном мимо формулы"
+else bad "28 код $RC: подсаженный второй дом факта прошёл"; fi
+has "28 назван виноватый файл"     "port-1080.md"
+has "28 названо ожидаемое имя"     "ожидалось «proxy-port.md»"
+# Подсказка про латиницу написана для enum-значений ядра. На имени файла она врёт:
+# имена по-русски законны, ими написаны и собственные фикстуры комплекта.
+case "$OUT" in *"не латиницей"*) bad "28 советует чинить кодировку имени вместо поля" ;;
+               *) ok "28 не приделывает к имени чужую подсказку про латиницу" ;; esac
+
+# (3) Снесли второй дом — зелено. Без этой половины проверка недоказана.
+rm "$TN/knowledge/port-1080.md"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [индекс]\n---\n\n# Индекс\n\n- [[proxy-port]]\n' > "$TN/knowledge/00-index.md"
+OUT=$(cd "$TN" && python3 "$SELF_V" knowledge --domain-type state 2>&1); RC=$?
+if [ "$RC" -eq 0 ]; then ok "28 после сноса второго дома прогон зелёный"
+else bad "28 после починки код $RC — проверка не гаснет тем способом, который назвала"; fi
+has "28 состав прогона назван" "Формула имени: проверено заметок — 1"
+
+# (4) Формула названа, а поля нет: заметка не «проходит», а выпадает — это ошибка.
+printf 'validate:\n  naming:\n    state: "{predmet}"\n' > "$TN/config.yaml"
+OUT=$(cd "$TN" && python3 "$SELF_V" knowledge --domain-type state 2>&1); RC=$?
+if [ "$RC" -eq 1 ]; then ok "28 формула без поля — ошибка, а не тихий пропуск"
+else bad "28 код $RC: заметка выпала из проверки молча"; fi
+
+# (5) Негодная формула не выдаётся за «не объявлял»: это разные состояния.
+printf 'validate:\n  naming:\n    state: "papka/{subject}.md"\n' > "$TN/config.yaml"
+OUT=$(cd "$TN" && python3 "$SELF_V" knowledge --domain-type state 2>&1)
+has "28 негодная формула названа негодной" "все объявленные формулы имени (1) негодны"
+case "$OUT" in *"формулы имени не объявлены"*) bad "28 объявленную формулу назвал необъявленной — строка врёт" ;;
+               *) ok "28 «не объявлял» и «написал негодно» не смешаны" ;; esac
+rm -rf "$TN"
+
+# (6) Обе раскладки. § 7.3 обещает, что формула работает и по папке, и по метке;
+# без этого случая обещание держалось бы на слове автора.
+TNM=$(mktemp -d)
+mkdir -p "$TNM/Объект" "$TNM/Общее"
+printf 'validate:\n  base:\n    mode: marker\n    index: "Общее/00-index.md"\n  naming:\n    state: "{subject}"\n' > "$TNM/config.yaml"
+printf -- '---\ntitle: Индекс\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[proxy-port]]\n- [[port-1080]]\n' > "$TNM/Общее/00-index.md"
+printf -- '---\ntitle: proxy-port\ntype: state\nsubject: proxy-port\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# proxy-port\n\n1080\n' > "$TNM/Объект/proxy-port.md"
+printf -- '---\ntitle: port-1080\ntype: state\nsubject: proxy-port\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# port-1080\n\n1080\n' > "$TNM/Объект/port-1080.md"
+OUT=$(cd "$TNM" && python3 "$SELF_V" . --domain-type state --no-trust-layer 2>&1); RC=$?
+has "28 раскладка по метке включилась" "ПО МЕТКЕ"
+if [ "$RC" -eq 1 ]; then ok "28 работает и в раскладке по метке, не только по папке"
+else bad "28 код $RC: в раскладке по метке формула не проверяется — обещание § 7.3 ложно"; fi
+has "28 по метке: назван виноватый файл" "port-1080.md"
+rm -rf "$TNM"
+
 case "$FAIL" in
   *1[1-4]) FW=провалов ;;
   *1) FW=провал ;;
