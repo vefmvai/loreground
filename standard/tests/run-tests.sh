@@ -3713,6 +3713,374 @@ else bad "28 код $RC: в раскладке по метке формула н
 has "28 по метке: назван виноватый файл" "port-1080.md"
 rm -rf "$TNM"
 
+echo "── Годность формулы имени: пять состояний, и все говорят вслух ──"
+# § 7.3 знает два исхода: формула применяется либо ВСЛУХ объявляется негодной.
+# Третьего — «тихо выброшена» — быть не должно, а было: пустое значение выпадало
+# фильтром при чтении конфига, а YAML-пустота ехала дальше буквальным словом «None».
+SB=$(mktemp -d); mkdir -p "$SB/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[proxy-port]]\n' > "$SB/knowledge/00-index.md"
+printf -- '---\ntitle: proxy-port\ntype: state\nsubject: proxy-port\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# proxy-port\n\n1080\n' > "$SB/knowledge/proxy-port.md"
+
+printf 'validate:\n  naming:\n    state: ""\n' > "$SB/config.yaml"
+OUT=$(cd "$SB" && python3 "$SELF_V" knowledge --domain-type state 2>&1)
+has "28 пустая формула названа негодной" "значение пустое"
+case "$OUT" in *"формулы имени не объявлены"*) bad "28 объявленную-но-пустую выдал за необъявленную" ;;
+               *) ok "28 «пусто» и «не объявлял» — разные состояния" ;; esac
+
+printf 'validate:\n  naming:\n    state:\n' > "$SB/config.yaml"
+OUT=$(cd "$SB" && python3 "$SELF_V" knowledge --domain-type state 2>&1); RC=$?
+has "28 YAML-пустота названа пустотой, а не типом NoneType" "значение пустое"
+case "$OUT" in *"«None»"*) bad "28 слово None из внутренностей Python уехало в шаблон имени" ;;
+               *) ok "28 None наружу не протекает" ;; esac
+if [ "$RC" -eq 0 ]; then ok "28 пустая формула не красит прогон"
+else bad "28 код $RC: негодная формула ПРИМЕНИЛАСЬ — § 7.3 обещает обратное"; fi
+
+printf 'validate:\n  naming:\n    state: ["{subject}"]\n' > "$SB/config.yaml"
+OUT=$(cd "$SB" && python3 "$SELF_V" knowledge --domain-type state 2>&1)
+has "28 значение не строкой названо негодным" "значение не строка"
+case "$OUT" in *"ожидалось «['proxy-port']"*) bad "28 список Python предложен как имя файла" ;;
+               *) ok "28 список не выдаётся за имя файла" ;; esac
+
+printf 'validate:\n  naming:\n    state: "{}"\n' > "$SB/config.yaml"
+OUT=$(cd "$SB" && python3 "$SELF_V" knowledge --domain-type state 2>&1); RC=$?
+has "28 формула без поля названа негодной" "нет ни одного поля"
+if [ "$RC" -eq 0 ]; then ok "28 формула «{}» не применяется"
+else bad "28 код $RC: имя, заданное строкой, выдано за посчитанное"; fi
+
+# Контроль: годная формула по-прежнему работает. Без него весь блок выше доказывал бы
+# лишь то, что проверку 28 удалось выключить целиком.
+printf 'validate:\n  naming:\n    state: "{subject}"\n' > "$SB/config.yaml"
+OUT=$(cd "$SB" && python3 "$SELF_V" knowledge --domain-type state 2>&1); RC=$?
+if [ "$RC" -eq 0 ]; then ok "28 годная формула на верном имени — зелено"
+else bad "28 код $RC: годная формула краснеет на верном имени"; fi
+has "28 годная формула отчитывается о работе" "проверено заметок — 1"
+
+echo "── формула на тип, которого в базе нет, — не молчит ──"
+# Опечатка в имени типа выключала проверку 28 целиком и БЕЗ ЕДИНОГО СЛОВА: строка
+# «не объявлены» не печаталась (формула-то есть), а счётчик стоял под условием
+# «хоть одна заметка проверена». Молчание неотличимо от выполненной проверки.
+printf 'validate:\n  naming:\n    stata: "{subject}"\n' > "$SB/config.yaml"
+OUT=$(cd "$SB" && python3 "$SELF_V" knowledge --domain-type state 2>&1)
+has "28 опечатка в имени типа названа вслух" "которых в базе нет"
+has "28 назван сам опечатанный тип" "«stata»"
+has "28 счётчик печатается и при нуле проверенных" "проверено заметок — 0"
+printf 'validate:\n  naming:\n    state: "{subject}"\n' > "$SB/config.yaml"
+OUT=$(cd "$SB" && python3 "$SELF_V" knowledge --domain-type state 2>&1)
+case "$OUT" in *"которых в базе нет"*) bad "28 жалуется на несуществующий тип там, где тип есть" ;;
+               *) ok "28 при верном типе лишней строки нет" ;; esac
+rm -rf "$SB"
+
+echo "── имя по-русски — подсказка про латиницу и юникод ──"
+# Прежний случай на эту тему был ЛОЖНО-ЗЕЛЁНЫМ: обе заметки фикстуры назывались
+# латиницей, а подсказка про омоглифы на чистой латинице молчит по устройству.
+# Вернуть дефект было можно, и смоук остался бы зелёным. Здесь имена русские.
+RU=$(mktemp -d); mkdir -p "$RU/knowledge"
+printf 'validate:\n  naming:\n    state: "{subject}"\n' > "$RU/config.yaml"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[порт 1080]]\n' > "$RU/knowledge/00-index.md"
+printf -- '---\ntitle: порт 1080\ntype: state\nsubject: порт-прокси\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# порт\n\n1080\n' > "$RU/knowledge/порт 1080.md"
+OUT=$(cd "$RU" && python3 "$SELF_V" knowledge --domain-type state 2>&1); RC=$?
+if [ "$RC" -eq 1 ]; then ok "28 краснеет на русском имени мимо формулы"
+else bad "28 код $RC: на русских именах проверка не работает"; fi
+has "28 названо ожидаемое русское имя" "ожидалось «порт-прокси.md»"
+case "$OUT" in *"написано не латиницей"*) bad "28 советует чинить кодировку русского имени — подсказка чужая" ;;
+               *) ok "28 не приделывает к русскому имени подсказку про латиницу" ;; esac
+case "$OUT" in *"смешаны"*) bad "28 говорит о смешении алфавитов там, где алфавит один" ;;
+               *) ok "28 молчит о смешении, когда его нет" ;; esac
+rm -rf "$RU"
+
+# Смешение кириллицы с латиницей: два имени неразличимы на экране, и сообщение
+# «ожидалось X» рядом с внешне таким же X обязано объяснить себя.
+SM=$(mktemp -d); mkdir -p "$SM/knowledge"
+printf 'validate:\n  naming:\n    state: "{subject}"\n' > "$SM/config.yaml"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[порт]]\n' > "$SM/knowledge/00-index.md"
+printf -- '---\ntitle: порт\ntype: state\nsubject: "пoрт"\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# порт\n\n1080\n' > "$SM/knowledge/порт.md"
+OUT=$(cd "$SM" && python3 "$SELF_V" knowledge --domain-type state 2>&1)
+has "28 смешение алфавитов объяснено словами" "смешаны"
+rm -rf "$SM"
+
+echo "── отмена в блочной записи YAML — не краснеет наравне со скобками ──"
+# § 7.4 освобождает строку `supersedes:` от пометки архивности, иначе ЛЮБАЯ верная
+# отмена красит прогон. Пропуск был построчным и знал только запись в скобках:
+# та же отмена списком через «- » проваливалась. Одно правило — два исхода.
+for FORMA in flow block; do
+  OT=$(mktemp -d); mkdir -p "$OT/knowledge"
+  printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[Регламент]]\n- [[Регламент-2025]] (архив)\n' > "$OT/knowledge/00-index.md"
+  printf -- '---\ntitle: Регламент-2025\ntype: concept\nschema_version: "1.0"\nstatus: archived\ncreated: 2025-01-01\ntags: [р]\n---\n\n# Регламент 2025\n\nОтменён. [[00-index]]\n' > "$OT/knowledge/Регламент-2025.md"
+  if [ "$FORMA" = flow ]; then POLE='supersedes: ["[[Регламент-2025]]"]'
+  else POLE='supersedes:\n  - "[[Регламент-2025]]"'; fi
+  printf -- "---\ntitle: Регламент\ntype: concept\nschema_version: \"1.0\"\nstatus: stable\ncreated: 2026-08-24\ntags: [р]\n${POLE}\n---\n\n# Регламент\n\nНовый. [[00-index]]\n" > "$OT/knowledge/Регламент.md"
+  OUT=$(cd "$OT" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1); RC=$?
+  case "$OUT" in *"АРХИВ КАК ИСТОЧНИК"*) bad "29 верная отмена ($FORMA) объявлена ссылкой на архив без пометки" ;;
+                 *) ok "29 верная отмена ($FORMA) не краснеет по § 7.4" ;; esac
+  if [ "$RC" -eq 0 ]; then ok "29 верная отмена ($FORMA) — прогон зелёный"
+  else bad "29 код $RC: верная отмена ($FORMA) красит прогон"; fi
+  # Обратная сторона: сняли пометку архива — обязано покраснеть по 29.
+  sed -i '' 's/^status: archived$/status: stable/' "$OT/knowledge/Регламент-2025.md"
+  OUT=$(cd "$OT" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1)
+  has "29 отменённая жива ($FORMA) — названа" "ОТМЕНЁННОЕ ЖИВО"
+  rm -rf "$OT"
+done
+
+echo "── самоотмена и ненайденная цель ──"
+SO=$(mktemp -d); mkdir -p "$SO/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[Регламент]]\n' > "$SO/knowledge/00-index.md"
+printf -- '---\ntitle: Регламент\ntype: concept\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [р]\nsupersedes: ["[[Регламент]]"]\n---\n\n# Регламент\n\n[[00-index]]\n' > "$SO/knowledge/Регламент.md"
+OUT=$(cd "$SO" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1)
+has "29 самоотмена названа своими словами" "отменённой саму себя"
+rm -rf "$SO"
+
+# Цель отмены не нашлась: её разбирает проверка 2. Положительный контроль 29 не имеет
+# права объявлять проверенным то, чего не смотрел, — прежняя формулировка «все в архиве
+# либо вне базы» засчитывала ненайденное в успех.
+NC=$(mktemp -d); mkdir -p "$NC/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[Регламент]]\n' > "$NC/knowledge/00-index.md"
+printf -- '---\ntitle: Регламент\ntype: concept\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [р]\nsupersedes: ["[[Такого-нет]]"]\n---\n\n# Регламент\n\n[[00-index]]\n' > "$NC/knowledge/Регламент.md"
+OUT=$(cd "$NC" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1)
+has "29 ненайденная цель названа отдельным числом" "Не нашлось в базе: 1"
+case "$OUT" in *"все названные заметки в архиве либо вне базы"*) bad "29 ненайденное засчитано в успех проверки" ;;
+               *) ok "29 положительный контроль не утверждает лишнего" ;; esac
+rm -rf "$NC"
+
+echo "── отчёт не зовёт править архив — во ВСЕХ разделах ──"
+# Фильтр архивных стоял в одном разделе из шести, а тест к нему был собран так, что
+# другие пять увидеть не мог: у фикстуры не было ни temporal, ни as_of, ни
+# revisit_after. Здесь заметка попадает во все разделы сразу.
+AR=$(mktemp -d); mkdir -p "$AR/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[Старьё]]\n' > "$AR/knowledge/00-index.md"
+printf -- '---\ntitle: ист\ntype: source\nschema_version: "1.0"\nstatus: stable\ncreated: 2020-01-01\nsource_type: official-docs\nreliability: B\ntags: [и]\n---\n\n# Источник\n\n[[00-index]]\n' > "$AR/knowledge/ист.md"
+STAR='---\ntitle: Старьё\ntype: knowledge\nschema_version: "1.0"\nstatus: %s\ncreated: 2020-01-01\nas_of: 2020-01\nrevisit_after: 2021-01\ntemporal: true\nconsensus: single\nsources: ["[[ист]]"]\ntags: [а]\n---\n\n# Старьё\n\n[[00-index]]\n'
+printf -- "$STAR" archived > "$AR/knowledge/Старьё.md"
+OUT=$(cd "$AR" && python3 "$SELF_V" knowledge --report 2>&1)
+case "$OUT" in *"Старьё"*) bad "отчёт зовёт править архивную заметку — § 7.4 это запрещает" ;;
+               *) ok "отчёт: архивная заметка не предложена ни в одном разделе" ;; esac
+has "отчёт называет число пропущенных архивных" "архивных пропущено: 1"
+# Обратная сторона: без пометки архива та же заметка обязана появиться. Без этой
+# половины «ничего не предложено» доказывало бы лишь то, что отчёт сломан целиком.
+printf -- "$STAR" stable > "$AR/knowledge/Старьё.md"
+OUT=$(cd "$AR" && python3 "$SELF_V" knowledge --report 2>&1)
+has "отчёт: неархивная протухшая заметка предложена" "ПРОТУХЛО"
+has "отчёт: срок перепроверки назван"                "СРОК ПЕРЕПРОВЕРКИ"
+has "отчёт: одинокий корень назван"                  "ОДНОМ КОРНЕ"
+rm -rf "$AR"
+
+echo "── отчёт называет свою комплектацию и своё невыполненное ──"
+# Одна и та же база из разных папок давала разные числа, потому что config.yaml
+# ищется в текущем каталоге. Отличить два прогона по экрану было нечем.
+KM=$(mktemp -d); mkdir -p "$KM/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n' > "$KM/knowledge/00-index.md"
+OUT=$(cd "$KM" && python3 "$SELF_V" knowledge --report 2>&1)
+has "отчёт говорит, что комплектация не прочитана" "Комплектация НЕ прочитана"
+has "отчёт зовёт гнать из папки базы" "из папки базы"
+printf 'validate:\n  knowledge_types: [состояние]\n' > "$KM/config.yaml"
+OUT=$(cd "$KM" && python3 "$SELF_V" knowledge --report 2>&1)
+has "отчёт называет прочитанный конфиг" "Комплектация прочитана из:"
+# Перечень невыполненного жил только в обычном прогоне, а режим отчёта глотал его
+# вместе со всем выводом: погасший раздел выглядел разделом без находок.
+OUT=$(cd "$KM" && python3 "$SELF_V" knowledge --report --no-trust-layer 2>&1)
+has "отчёт печатает перечень невыполненного" "В ЭТОМ ПРОГОНЕ НЕ ВЫПОЛНЯЛОСЬ"
+has "отчёт называет причину пропуска" "слой доверия"
+rm -rf "$KM"
+
+echo "── у числа случаев кода 2 один дом ──"
+# Шапка валидатора объявляет себя указателем на § 10 — и три релиза несла своё число
+# («семь» против «восьми» в доме). Указатель с числом внутри указателем не является.
+if command grep -qE 'Случаев (семь|восемь)' "$SELF_V"; then
+  bad "шапка валидатора снова несёт своё число случаев кода 2 — это второй дом"
+else ok "шапка валидатора числа случаев не дублирует"; fi
+
+echo "── Отмена: любая законная запись YAML работает одинаково ──"
+# Перечислять формы записи частными случаями — проигранная игра: первая редакция
+# пропуска знала только запись в скобках, вторая добавила блочную, а многострочная
+# в скобках и блочная с комментарием продолжали красить прогон.
+for FRM in flow block multiline commented; do
+  YB=$(mktemp -d); mkdir -p "$YB/knowledge"
+  printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[Регламент]]\n- [[Регламент-2025]] (архив)\n' > "$YB/knowledge/00-index.md"
+  printf -- '---\ntitle: Регламент-2025\ntype: concept\nschema_version: "1.0"\nstatus: archived\ncreated: 2025-01-01\ntags: [р]\n---\n\n# Старый\n\nОтменён. [[00-index]]\n' > "$YB/knowledge/Регламент-2025.md"
+  case "$FRM" in
+    flow)      FLD='supersedes: ["[[Регламент-2025]]"]' ;;
+    block)     FLD='supersedes:\n  - "[[Регламент-2025]]"' ;;
+    multiline) FLD='supersedes: [\n  "[[Регламент-2025]]"\n]' ;;
+    commented) FLD='supersedes:\n  # прежняя редакция\n  - "[[Регламент-2025]]"' ;;
+  esac
+  printf -- "---\ntitle: Регламент\ntype: concept\nschema_version: \"1.0\"\nstatus: stable\ncreated: 2026-08-24\ntags: [р]\n${FLD}\n---\n\n# Новый\n\n[[00-index]]\n" > "$YB/knowledge/Регламент.md"
+  OUT=$(cd "$YB" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1); RC=$?
+  case "$OUT" in *"АРХИВ КАК ИСТОЧНИК"*) bad "29 верная отмена ($FRM) объявлена ссылкой на архив без пометки" ;;
+                 *) ok "29 верная отмена ($FRM) не краснеет по § 7.4" ;; esac
+  if [ "$RC" -eq 0 ]; then ok "29 верная отмена ($FRM) — прогон зелёный"
+  else bad "29 код $RC: верная отмена ($FRM) красит прогон"; fi
+  rm -rf "$YB"
+done
+
+echo "── supersedes схлопывает корни: две редакции одного документа — один корень ──"
+# Самое сильное заявление зависимости, какое умеет стандарт. Пока его читала одна
+# проверка 29, а арифметика корней не видела, две редакции одного приказа давали
+# confirmed: две проверки в одном прогоне смотрели на пару и видели разное.
+SR=$(mktemp -d); mkdir -p "$SR/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[Срок]]\n- [[Приказ 2024]]\n- [[Приказ 2018]] (исторический снимок)\n' > "$SR/knowledge/00-index.md"
+printf -- '---\ntitle: Приказ 2018\ntype: source\nschema_version: "1.0"\nstatus: archived\ncreated: 2018-01-01\nsource_type: official-docs\nreliability: A\nroot_id: [prikaz-2018]\ntags: [и]\n---\n\n# Старая редакция\n\nисторический снимок. [[00-index]]\n' > "$SR/knowledge/Приказ 2018.md"
+printf -- '---\ntitle: Приказ 2024\ntype: source\nschema_version: "1.0"\nstatus: stable\ncreated: 2024-01-01\nsource_type: official-docs\nreliability: A\nroot_id: [prikaz-2024]\nsupersedes: ["[[Приказ 2018]]"]\ntags: [и]\n---\n\n# Новая редакция\n\n[[00-index]]\n' > "$SR/knowledge/Приказ 2024.md"
+printf -- '---\ntitle: Срок\ntype: knowledge\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\nconsensus: confirmed\ntags: [с]\nsources:\n  - "[[Приказ 2024]]"\n  - "[[Приказ 2018]]"   # исторический снимок\n---\n\n# Срок\n\n10 дней. [[00-index]]\n' > "$SR/knowledge/Срок.md"
+OUT=$(cd "$SR" && python3 "$SELF_V" knowledge 2>&1); RC=$?
+if [ "$RC" -eq 1 ]; then ok "5 две редакции одного документа считаются ОДНИМ корнем"
+else bad "5 код $RC: supersedes объявил зависимость, а арифметика корней её не увидела"; fi
+has "5 разложение называет supersedes третьей причиной" "supersedes"
+# Обратная сторона: убрали supersedes — корня снова два, вердикт законен.
+sed -i '' '/^supersedes:/d' "$SR/knowledge/Приказ 2024.md"
+OUT=$(cd "$SR" && python3 "$SELF_V" knowledge 2>&1); RC=$?
+if [ "$RC" -eq 0 ]; then ok "5 без supersedes два источника — два корня, confirmed законен"
+else bad "5 код $RC: схлопывание сработало там, где зависимость не объявлена"; fi
+rm -rf "$SR"
+
+echo "── Формула имени: точка входа исключена, регистр назван регистром ──"
+# § 7.2 требует, чтобы индекс звался 00-index.md; формула требовала бы звать его по
+# полю. Выполнить оба нельзя — первая же база, объявившая формулу «в лоб», получала
+# ложную ошибку на здоровом индексе.
+FI=$(mktemp -d); mkdir -p "$FI/knowledge"
+printf 'validate:\n  naming:\n    moc: "{title}"\n    state: "{title}"\n' > "$FI/config.yaml"
+printf -- '---\ntitle: Главная — База знаний\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Главная\n\n- [[рецепт-V60]]\n' > "$FI/knowledge/00-index.md"
+printf -- '---\ntitle: рецепт-v60\ntype: state\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# Рецепт\n\n[[00-index]]\n' > "$FI/knowledge/рецепт-V60.md"
+OUT=$(cd "$FI" && python3 "$SELF_V" knowledge --domain-type state --no-trust-layer 2>&1)
+case "$OUT" in *"00-index.md: ожидалось"*) bad "28 требует переименовать точку входа — спор с § 7.2" ;;
+               *) ok "28 точка входа из формулы исключена" ;; esac
+has "28 различие регистра названо регистром" "различие только в РЕГИСТРЕ"
+case "$OUT" in *"неразличимы"*) bad "28 зовёт различие регистра неразличимым — подсказка врёт" ;;
+               *) ok "28 не зовёт V и v неразличимыми" ;; esac
+rm -rf "$FI"
+
+echo "── Формула имени: счётчик со знаменателем и честная граница ──"
+# Голое «проверено N» читается как «механика работает»: на базе в двести заметок
+# «проверено 2» — правда, звучащая как покрытие.
+ZN=$(mktemp -d); mkdir -p "$ZN/knowledge"
+printf 'validate:\n  naming:\n    state: "{title}"\n' > "$ZN/config.yaml"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[port-1080]]\n- [[port-1081]]\n' > "$ZN/knowledge/00-index.md"
+for P in 1080 1081; do
+  printf -- "---\ntitle: port-%s\ntype: state\nschema_version: \"1.0\"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# Порт\n\n%s [[00-index]]\n" "$P" "$P" > "$ZN/knowledge/port-$P.md"
+done
+OUT=$(cd "$ZN" && python3 "$SELF_V" knowledge --domain-type state --no-trust-layer 2>&1)
+has "28 у счётчика есть знаменатель" "проверено заметок — 2 из 3"
+has "28 граница названа рядом со счётчиком" "сверяет имя с полем — и только"
+rm -rf "$ZN"
+
+echo "── Формула имени: два ключа на один тип не теряются молча ──"
+DK=$(mktemp -d); mkdir -p "$DK/knowledge"
+printf 'validate:\n  naming:\n    State: "{title}XXX"\n    state: "{title}"\n' > "$DK/config.yaml"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[зам]]\n' > "$DK/knowledge/00-index.md"
+printf -- '---\ntitle: зам\ntype: state\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# Зам\n\n[[00-index]]\n' > "$DK/knowledge/зам.md"
+OUT=$(cd "$DK" && python3 "$SELF_V" knowledge --domain-type state --no-trust-layer 2>&1)
+has "28 схлопнутые ключи конфига названы вслух" "объявлен дважды для одного типа"
+rm -rf "$DK"
+
+echo "── Формула имени: правило про расширение проверяется отдельно от правила про путь ──"
+# Значение, совмещающее два порока сразу («papka/{subject}.md»), доказывает только
+# первый: ветка «/» стоит в коде раньше, и до ветки «.md» дело не доходит.
+RS=$(mktemp -d); mkdir -p "$RS/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[зам]]\n' > "$RS/knowledge/00-index.md"
+printf -- '---\ntitle: зам\ntype: state\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# Зам\n\n[[00-index]]\n' > "$RS/knowledge/зам.md"
+printf 'validate:\n  naming:\n    state: "{title}.md"\n' > "$RS/config.yaml"
+OUT=$(cd "$RS" && python3 "$SELF_V" knowledge --domain-type state --no-trust-layer 2>&1)
+has "28 расширение в формуле названо отдельной причиной" "написано расширение"
+printf 'validate:\n  naming:\n    state: "papka/{title}"\n' > "$RS/config.yaml"
+OUT=$(cd "$RS" && python3 "$SELF_V" knowledge --domain-type state --no-trust-layer 2>&1)
+has "28 путь в формуле назван отдельной причиной" "задаёт ИМЯ файла, а не путь"
+rm -rf "$RS"
+
+echo "── Формула имени: юникод NFC/NFD расхождением не считается ──"
+# Без этого случая правку, снявшую нормализацию, ничто не держало бы: валидатор
+# обвинял бы файл, который на экране назван ровно так, как требует формула.
+UN=$(mktemp -d); mkdir -p "$UN/knowledge"
+printf 'validate:\n  naming:\n    state: "{title}"\n' > "$UN/config.yaml"
+python3 - "$UN" <<'PYU'
+import io, os, sys, unicodedata
+b = sys.argv[1]
+имя = unicodedata.normalize("NFD", "ёлка")      # файл в разложенной форме
+поле = unicodedata.normalize("NFC", "ёлка")     # поле в составной
+io.open(os.path.join(b, "knowledge", "00-index.md"), "w", encoding="utf-8").write(
+    '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\n'
+    'created: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[' + поле + ']]\n')
+io.open(os.path.join(b, "knowledge", имя + ".md"), "w", encoding="utf-8").write(
+    '---\ntitle: ' + поле + '\ntype: state\nschema_version: "1.0"\nstatus: stable\n'
+    'created: 2026-08-24\ntags: [с]\n---\n\n# Ёлка\n\n[[00-index]]\n')
+PYU
+OUT=$(cd "$UN" && python3 "$SELF_V" knowledge --domain-type state --no-trust-layer 2>&1); RC=$?
+if [ "$RC" -eq 0 ]; then ok "28 разные формы юникода одного имени расхождением не считаются"
+else bad "28 код $RC: обвиняет файл, который на экране назван ровно как надо"; fi
+rm -rf "$UN"
+
+echo "── Отчёт: архивные не попадают ни в один из шести разделов ──"
+# Заметка обязана попадать во ВСЕ разделы сразу: с temporal, as_of, revisit_after,
+# без вердикта и с двумя независимыми корнями. Фикстура, попадающая в один раздел,
+# доказывает один раздел.
+AR6=$(mktemp -d); mkdir -p "$AR6/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[Старьё]]\n- [[Занижено]]\n- [[Немое]]\n' > "$AR6/knowledge/00-index.md"
+for I in 1 2; do
+  printf -- "---\ntitle: ист%s\ntype: source\nschema_version: \"1.0\"\nstatus: stable\ncreated: 2020-01-01\nsource_type: official-docs\nreliability: B\nroot_id: [r%s]\ntags: [и]\n---\n\n# Источник\n\n[[00-index]]\n" "$I" "$I" > "$AR6/knowledge/ист$I.md"
+done
+STT='---\ntitle: %s\ntype: knowledge\nschema_version: "1.0"\nstatus: %s\ncreated: 2020-01-01\nas_of: 2020-01\nrevisit_after: 2021-01\ntemporal: true\nconsensus: single\nsources: ["[[ист1]]"]\ntags: [а]\n---\n\n# %s\n\n[[00-index]]\n'
+ZAN='---\ntitle: Занижено\ntype: knowledge\nschema_version: "1.0"\nstatus: %s\ncreated: 2020-01-01\nconsensus: single\nsources: ["[[ист1]]", "[[ист2]]"]\ntags: [а]\n---\n\n# Занижено\n\n[[00-index]]\n'
+NEM='---\ntitle: Немое\ntype: knowledge\nschema_version: "1.0"\nstatus: %s\ncreated: 2020-01-01\nsources: ["[[ист1]]"]\ntags: [а]\n---\n\n# Немое\n\n[[00-index]]\n'
+wr() { printf -- "$STT" Старьё "$1" Старьё > "$AR6/knowledge/Старьё.md"
+         printf -- "$ZAN" "$1" > "$AR6/knowledge/Занижено.md"
+         printf -- "$NEM" "$1" > "$AR6/knowledge/Немое.md"; }
+wr archived
+OUT=$(cd "$AR6" && python3 "$SELF_V" knowledge --report 2>&1)
+for ZZ in Старьё Занижено Немое; do
+  case "$OUT" in *"${ZZ}"*) bad "отчёт зовёт править архивную заметку «${ZZ}» — § 7.4 это запрещает" ;;
+                 *) ok "отчёт: архивная «${ZZ}» не предложена" ;; esac
+done
+has "отчёт называет число пропущенных архивных" "архивных пропущено: 3"
+has "отчёт называет архив среди того, чего не видит" "архивные заметки: они из отчёта исключены"
+# Обратная сторона: сняли пометку — все четыре раздела обязаны зажечься.
+wr stable
+OUT=$(cd "$AR6" && python3 "$SELF_V" knowledge --report 2>&1)
+has "отчёт: неархивное протухшее видно"      "ПРОТУХЛО"
+has "отчёт: неархивный срок перепроверки виден" "СРОК ПЕРЕПРОВЕРКИ"
+has "отчёт: неархивное без вердикта видно"   "БЕЗ ВЕРДИКТА"
+has "отчёт: неархивный занижённый вердикт виден" "ЗАНИЖЕН"
+rm -rf "$AR6"
+
+echo "── Спор без второй стороны: disputed требует двух источников ──"
+DS=$(mktemp -d); mkdir -p "$DS/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[Спорное]]\n- [[ист1]]\n- [[ист2]]\n' > "$DS/knowledge/00-index.md"
+for I in 1 2; do
+  printf -- "---\ntitle: ист%s\ntype: source\nschema_version: \"1.0\"\nstatus: stable\ncreated: 2026-08-24\nsource_type: official-docs\nreliability: B\nroot_id: [r%s]\ntags: [и]\n---\n\n# Источник\n\n[[00-index]]\n" "$I" "$I" > "$DS/knowledge/ист$I.md"
+done
+printf -- '---\ntitle: Спорное\ntype: knowledge\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\nconsensus: disputed\nsources: ["[[ист1]]"]\ntags: [с]\n---\n\n# Спорное\n\n[[00-index]]\n' > "$DS/knowledge/Спорное.md"
+OUT=$(cd "$DS" && python3 "$SELF_V" knowledge 2>&1); RC=$?
+if [ "$RC" -eq 1 ]; then ok "30 disputed при одном источнике — ошибка"
+else bad "30 код $RC: вердикт «источники противоречат» прошёл при одном источнике"; fi
+has "30 назван виноватый файл" "Спорное.md"
+# Обратная сторона: два источника — спор законен.
+printf -- '---\ntitle: Спорное\ntype: knowledge\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\nconsensus: disputed\nsources: ["[[ист1]]", "[[ист2]]"]\ntags: [с]\n---\n\n# Спорное\n\n[[00-index]]\n' > "$DS/knowledge/Спорное.md"
+OUT=$(cd "$DS" && python3 "$SELF_V" knowledge 2>&1); RC=$?
+if [ "$RC" -eq 0 ]; then ok "30 disputed при двух источниках законен"
+else bad "30 код $RC: законный спор объявлен ошибкой"; fi
+rm -rf "$DS"
+
+echo "── Объявленный индекс обязан быть похож на точку входа ──"
+IX=$(mktemp -d); mkdir -p "$IX/knowledge"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[зам]]\n' > "$IX/knowledge/00-index.md"
+printf -- '---\ntitle: зам\ntype: concept\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# Зам\n\n[[00-index]]\n' > "$IX/knowledge/зам.md"
+printf 'validate:\n  base:\n    index: knowledge/зам.md\n' > "$IX/config.yaml"
+OUT=$(cd "$IX" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1)
+has "31 подмена индекса рядовой заметкой названа" "НЕ ПОХОЖ НА ТОЧКУ ВХОДА"
+printf 'validate:\n  base:\n    index: knowledge/00-index.md\n' > "$IX/config.yaml"
+OUT=$(cd "$IX" && python3 "$SELF_V" knowledge --no-trust-layer 2>&1)
+case "$OUT" in *"НЕ ПОХОЖ НА ТОЧКУ ВХОДА"*) bad "31 ругается на честный moc-индекс" ;;
+               *) ok "31 честный moc-индекс не трогает" ;; esac
+rm -rf "$IX"
+
+echo "── Опечатка в knowledge_types называется опечаткой ──"
+# Соседний ключ (naming) эту строку печатает; knowledge_types молчал — один класс
+# ошибки у двух соседних ключей ловился по-разному.
+KT=$(mktemp -d); mkdir -p "$KT/knowledge"
+printf 'validate:\n  knowledge_types: [рецепты]\n' > "$KT/config.yaml"
+printf -- '---\ntitle: 00-index\ntype: moc\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [и]\n---\n\n# Индекс\n\n- [[зам]]\n' > "$KT/knowledge/00-index.md"
+printf -- '---\ntitle: зам\ntype: рецепт\nschema_version: "1.0"\nstatus: stable\ncreated: 2026-08-24\ntags: [с]\n---\n\n# Зам\n\n[[00-index]]\n' > "$KT/knowledge/зам.md"
+OUT=$(cd "$KT" && python3 "$SELF_V" knowledge 2>&1)
+has "14 опечатка в knowledge_types названа" "Объявлено знанием, но в базе таких типов нет"
+has "14 назван сам опечатанный тип" "«рецепты»"
+rm -rf "$KT"
+
 case "$FAIL" in
   *1[1-4]) FW=провалов ;;
   *1) FW=провал ;;
